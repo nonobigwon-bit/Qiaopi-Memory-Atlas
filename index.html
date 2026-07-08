@@ -986,9 +986,10 @@
 
     .rag-chat-preview {
       margin-top: clamp(30px, 4vw, 44px);
-      width: min(980px, 100%);
+      width: min(1260px, 100%);
       border-radius: 1.6rem;
-      padding: clamp(14px, 1.6vw, 20px);
+      padding: clamp(16px, 1.7vw, 22px);
+      margin-inline: auto;
     }
 
     .rag-chat-preview__plate {
@@ -996,7 +997,10 @@
       background:
         linear-gradient(135deg, rgba(7,7,7,0.9), rgba(12,10,7,0.72)),
         rgba(8,7,6,0.78);
-      padding: clamp(18px, 2.4vw, 28px);
+      min-height: clamp(520px, 48vw, 640px);
+      display: flex;
+      flex-direction: column;
+      padding: clamp(26px, 3vw, 44px);
       box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
     }
 
@@ -1019,29 +1023,65 @@
     }
 
     .rag-chat-preview__thread {
-      margin-top: 22px;
-      display: grid;
-      gap: 14px;
+      flex: 1;
+      margin-top: clamp(24px, 3vw, 38px);
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      min-height: 0;
+      overflow: auto;
+      padding-right: 4px;
+      scroll-behavior: smooth;
+    }
+
+    .rag-chat-preview__thread::-webkit-scrollbar {
+      width: 5px;
+    }
+
+    .rag-chat-preview__thread::-webkit-scrollbar-thumb {
+      border-radius: 999px;
+      background: rgba(255,255,255,0.16);
     }
 
     .rag-bubble {
-      max-width: min(760px, 100%);
+      max-width: min(900px, 78%);
       border-radius: 1.15rem;
-      padding: 15px 17px;
+      padding: 16px 18px;
       color: rgba(255,255,255,0.86);
       font-size: 0.96rem;
       line-height: 1.7;
+      text-align: left;
+      white-space: pre-wrap;
     }
 
     .rag-bubble--user {
-      justify-self: end;
+      align-self: flex-end;
       background: rgba(255,255,255,0.12);
     }
 
     .rag-bubble--assistant {
-      justify-self: start;
+      align-self: flex-start;
       background: rgba(216,180,106,0.11);
       border: 1px solid rgba(216,180,106,0.18);
+    }
+
+    .rag-bubble--system {
+      align-self: center;
+      max-width: min(760px, 100%);
+      background: rgba(255,255,255,0.07);
+      color: rgba(255,255,255,0.62);
+      text-align: center;
+      font-size: 0.86rem;
+    }
+
+    .rag-bubble__model {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 8px;
+      color: rgba(255,245,218,0.7);
+      font-size: 0.74rem;
+      font-weight: 800;
     }
 
     .rag-evidence-grid {
@@ -1073,12 +1113,78 @@
     }
 
     .rag-chat-preview__input {
-      margin-top: 16px;
+      position: relative;
+      margin-top: clamp(20px, 2.5vw, 30px);
       border-radius: 999px;
       background: rgba(255,255,255,0.075);
-      padding: 8px 8px 8px 16px;
+      padding: 8px;
       color: rgba(255,255,255,0.48);
       font-size: 0.9rem;
+    }
+
+    .rag-chat-preview__input input {
+      min-width: 0;
+      flex: 1;
+      border: 0;
+      background: transparent;
+      padding: 0 10px 0 10px;
+      color: rgba(255,255,255,0.88);
+      font: inherit;
+      outline: none;
+    }
+
+    .rag-chat-preview__input input::placeholder {
+      color: rgba(255,255,255,0.42);
+    }
+
+    .rag-chat-preview__model {
+      position: relative;
+      flex-shrink: 0;
+    }
+
+    .rag-model-trigger {
+      display: inline-flex;
+      height: 38px;
+      align-items: center;
+      gap: 8px;
+      border: 0;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.1);
+      color: rgba(255,255,255,0.86);
+      padding: 0 13px 0 15px;
+      font-size: 0.84rem;
+      font-weight: 800;
+      white-space: nowrap;
+      transition: background 0.22s ease, transform 0.22s ease;
+    }
+
+    .rag-model-select-wrap {
+      min-width: 150px;
+    }
+
+    .rag-model-select {
+      width: 100%;
+      appearance: none;
+      -webkit-appearance: none;
+      cursor: pointer;
+      padding-right: 34px;
+      outline: none;
+    }
+
+    .rag-model-select-icon {
+      position: absolute;
+      top: 50%;
+      right: 12px;
+      width: 16px;
+      height: 16px;
+      color: rgba(255,255,255,0.68);
+      pointer-events: none;
+      transform: translateY(-50%);
+    }
+
+    .rag-model-trigger:hover {
+      background: rgba(255,255,255,0.15);
+      transform: translateY(-1px);
     }
 
     .rag-chat-preview__send {
@@ -1090,6 +1196,26 @@
       border-radius: 999px;
       background: rgba(255,255,255,0.92);
       color: #050403;
+      flex-shrink: 0;
+      transition: transform 0.22s ease, opacity 0.22s ease;
+    }
+
+    .rag-chat-preview__send:disabled {
+      cursor: not-allowed;
+      opacity: 0.46;
+      transform: none;
+    }
+
+    .rag-chat-preview__send:not(:disabled):hover {
+      transform: translateY(-1px);
+    }
+
+    .rag-chat-preview__hint {
+      margin-top: 10px;
+      color: rgba(255,255,255,0.42);
+      font-size: 0.78rem;
+      line-height: 1.6;
+      text-align: left;
     }
 
     @keyframes showcase-scroll {
@@ -1105,11 +1231,16 @@
       position: relative;
       z-index: 10;
       min-height: 100dvh;
-      padding: clamp(122px, 14vw, 180px) 20px var(--section-pad);
+      padding: clamp(112px, 10vw, 152px) 20px var(--section-pad);
     }
 
     .page-hero {
-      max-width: 1120px;
+      max-width: min(1440px, 100%);
+      margin-inline: auto;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
     }
 
     .page-kicker {
@@ -1125,20 +1256,23 @@
 
     .page-title {
       margin-top: 30px;
-      max-width: min(1180px, 100%);
-      font-size: clamp(2.35rem, 3.45vw, 3.85rem);
+      max-width: min(1440px, 100%);
+      font-size: clamp(2.15rem, 4.6vw, 4.95rem);
       line-height: 1.08;
       color: #fff;
       word-break: keep-all;
       overflow-wrap: normal;
+      text-wrap: balance;
     }
 
     .page-subtitle {
       margin-top: 24px;
-      max-width: 780px;
+      max-width: min(1240px, 100%);
       color: rgba(255,255,255,0.72);
-      font-size: clamp(1.05rem, 1.35vw, 1.35rem);
+      font-size: clamp(1rem, 1.5vw, 1.42rem);
       line-height: 1.8;
+      text-wrap: balance;
+      word-break: keep-all;
     }
 
     .page-grid {
@@ -1157,6 +1291,7 @@
     .page-action-row {
       display: flex;
       flex-wrap: wrap;
+      justify-content: center;
       gap: 12px;
       margin-top: 30px;
     }
@@ -1310,8 +1445,42 @@
         flex-direction: column;
       }
 
+      .rag-chat-preview {
+        width: 100%;
+      }
+
+      .rag-chat-preview__plate {
+        min-height: 520px;
+        padding: 20px;
+      }
+
+      .rag-bubble {
+        max-width: 100%;
+      }
+
       .rag-evidence-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .rag-chat-preview__input {
+        align-items: stretch;
+        border-radius: 1.15rem;
+        flex-wrap: wrap;
+        padding: 10px;
+      }
+
+      .rag-chat-preview__input input {
+        flex-basis: 100%;
+        min-height: 38px;
+      }
+
+      .rag-chat-preview__model {
+        flex: 1;
+      }
+
+      .rag-model-trigger {
+        width: 100%;
+        justify-content: center;
       }
 
       .page-shell {
@@ -1693,6 +1862,13 @@
       }
     };
 
+    const CHAT_MODEL_OPTIONS = [
+      { id: "mimo-2-5", label: "MiMo 2.5" },
+      { id: "gpt-5-5", label: "GPT-5.5" },
+      { id: "deepseek-v4-flash", label: "DeepSeek V4 Flash" },
+      { id: "gemini-3-5-flash", label: "Gemini 3.5 Flash" }
+    ];
+
     const NAV_ITEMS = [
       { label: "首页", page: "home" },
       { label: "智能建档", page: "archive" },
@@ -1705,6 +1881,7 @@
 
     const ICON_PATHS = {
       ArrowUpRight: <><path d="M7 17 17 7" /><path d="M7 7h10v10" /></>,
+      ChevronDown: <><path d="m6 9 6 6 6-6" /></>,
       Upload: <><path d="M12 16V4" /><path d="m7 9 5-5 5 5" /><path d="M20 16v4H4v-4" /></>,
       Scan: <><path d="M8 3H5a2 2 0 0 0-2 2v3" /><path d="M16 3h3a2 2 0 0 1 2 2v3" /><path d="M8 21H5a2 2 0 0 1-2-2v-3" /><path d="M16 21h3a2 2 0 0 0 2-2v-3" /><path d="M7 12h10" /></>,
       Search: <><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></>,
@@ -2734,7 +2911,99 @@
       );
     }
 
+    function ModelSelector({ selectedModel, onSelect, disabled }) {
+      return (
+        <div className="rag-chat-preview__model rag-model-select-wrap">
+          <select
+            className="rag-model-trigger rag-model-select"
+            value={selectedModel}
+            disabled={disabled}
+            aria-label="选择演示模型"
+            onChange={(event) => onSelect(event.target.value)}
+          >
+            {CHAT_MODEL_OPTIONS.map((option) => (
+              <option key={option.id} value={option.id}>{option.label}</option>
+            ))}
+          </select>
+          <Icon name="ChevronDown" className="rag-model-select-icon" />
+        </div>
+      );
+    }
+
     function RagChatPreview({ demo }) {
+      const initialMessages = useMemo(() => ([
+        { role: "user", content: demo.question },
+        { role: "assistant", content: demo.answer, evidences: demo.evidences, model: "MiMo 2.5" }
+      ]), [demo]);
+      const [messages, setMessages] = useState(initialMessages);
+      const [input, setInput] = useState("");
+      const [selectedModel, setSelectedModel] = useState(CHAT_MODEL_OPTIONS[0].id);
+      const [pending, setPending] = useState(false);
+      const [notice, setNotice] = useState("");
+      const threadRef = useRef(null);
+
+      useEffect(() => {
+        setMessages(initialMessages);
+      }, [initialMessages]);
+
+      useEffect(() => {
+        if (!threadRef.current) return;
+        threadRef.current.scrollTop = threadRef.current.scrollHeight;
+      }, [messages, pending]);
+
+      const submitQuestion = async (event) => {
+        event.preventDefault();
+        const question = input.trim();
+        if (!question || pending) return;
+
+        const nextMessages = [...messages, { role: "user", content: question }];
+        setMessages(nextMessages);
+        setInput("");
+        setPending(true);
+        setNotice("");
+
+        try {
+          if (["127.0.0.1", "localhost"].includes(window.location.hostname) && window.location.port === "4173") {
+            throw new Error("local_static_preview");
+          }
+
+          const response = await fetch("/api/chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              selectedModel,
+              messages: nextMessages.map(({ role, content }) => ({ role, content }))
+            })
+          });
+
+          if (!response.ok) throw new Error("chat_api_unavailable");
+          const data = await response.json();
+          const reply = data.reply || "暂时没有生成回答，请换一种问法再试一次。";
+          setMessages((current) => [
+            ...current,
+            {
+              role: "assistant",
+              content: reply,
+              evidences: demo.evidences,
+              model: data.displayModel || "MiMo 2.5"
+            }
+          ]);
+        } catch (error) {
+          setNotice("当前本地预览没有可用后端；部署到 Cloudflare 并设置 MIMO_API_KEY 后会自动启用真实 MiMo 2.5 调用。");
+          setMessages((current) => [
+            ...current,
+            {
+              role: "assistant",
+              content: "我已收到这个问题。在线部署环境接入 MiMo 2.5 后，会基于档案编号、原文片段、审核状态和授权边界生成可追溯回答。当前本地预览先保留这条演示回复。",
+              evidences: demo.evidences,
+              model: "MiMo 2.5"
+            }
+          ]);
+        } finally {
+          setPending(false);
+        }
+      };
+
       return (
         <GlassCard className="rag-chat-preview" tilt={false}>
           <div className="rag-chat-preview__plate">
@@ -2751,27 +3020,49 @@
               <span className="rag-chat-preview__status">{demo.status}</span>
             </div>
 
-            <div className="rag-chat-preview__thread">
-              <p className="rag-bubble rag-bubble--user">{demo.question}</p>
-              <div className="rag-bubble rag-bubble--assistant">
-                <p>{demo.answer}</p>
-                <div className="rag-evidence-grid">
-                  {demo.evidences.map(([label, value]) => (
-                    <div key={label} className="rag-evidence">
-                      <span>{label}</span>
-                      <strong>{value}</strong>
+            <div className="rag-chat-preview__thread" ref={threadRef}>
+              {messages.map((message, index) => (
+                <div key={`${message.role}-${index}`} className={`rag-bubble rag-bubble--${message.role}`}>
+                  {message.role === "assistant" && (
+                    <span className="rag-bubble__model">
+                      {message.model || "MiMo 2.5"} · 证据约束回答
+                    </span>
+                  )}
+                  <p>{message.content}</p>
+                  {message.evidences && (
+                    <div className="rag-evidence-grid">
+                      {message.evidences.map(([label, value]) => (
+                        <div key={`${label}-${index}`} className="rag-evidence">
+                          <span>{label}</span>
+                          <strong>{value}</strong>
+                        </div>
+                      ))}
                     </div>
-                  ))}
+                  )}
                 </div>
-              </div>
+              ))}
+              {pending && (
+                <div className="rag-bubble rag-bubble--assistant">
+                  <span className="rag-bubble__model">MiMo 2.5 · 正在检索证据链</span>
+                  <p>正在生成回答，请稍候...</p>
+                </div>
+              )}
             </div>
 
-            <div className="rag-chat-preview__input">
-              <span>{demo.input}</span>
-              <span className="rag-chat-preview__send">
+            <form className="rag-chat-preview__input" onSubmit={submitQuestion}>
+              <input
+                value={input}
+                onChange={(event) => setInput(event.target.value)}
+                placeholder={demo.input}
+                aria-label="输入侨批问答问题"
+                disabled={pending}
+              />
+              <ModelSelector selectedModel={selectedModel} onSelect={setSelectedModel} disabled={pending} />
+              <button className="rag-chat-preview__send" type="submit" disabled={pending || !input.trim()} aria-label="发送问题">
                 <Icon name="ArrowUpRight" className="h-4 w-4" />
-              </span>
-            </div>
+              </button>
+            </form>
+            {notice && <p className="rag-chat-preview__hint">{notice}</p>}
           </div>
         </GlassCard>
       );
