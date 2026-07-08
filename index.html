@@ -1256,8 +1256,18 @@
     const { motion } = window.Motion;
 
     const VIDEO_SOURCES = {
-      global: "./background_video/bc691effed63d5eac137d9edaa2dace34dac41e7dcb6a64b6dba5be21d9af13f.mp4"
+      home: "./background_video/1.首页.mp4",
+      archive: "./background_video/2. 智能建档.mp4",
+      ocr: "./background_video/3. OCR_HTR.mp4",
+      semantic: "./background_video/4. 语义抽取.mp4",
+      rag: "./background_video/5. 可信 RAG.mp4",
+      outputs: "./background_video/6. 全部成果.mp4",
+      booking: "./background_video/7. 公益建档.mp4"
     };
+
+    function getVideoSourceForPage(page) {
+      return VIDEO_SOURCES[page] || VIDEO_SOURCES.home;
+    }
 
     const OUTPUT_ITEMS = [
       {
@@ -3154,10 +3164,11 @@
         : page === "outputs"
           ? <OutputsPage key="page-outputs" onNavigate={navigate} />
           : <DetailPage key={`page-${page}`} page={page} onNavigate={navigate} />;
+      const videoSource = getVideoSourceForPage(page);
 
       return (
         <div className="min-h-screen bg-transparent text-white">
-          <ScrollVideoBackdrop src={VIDEO_SOURCES.global} />
+          <ScrollVideoBackdrop key={`video-${page}`} src={videoSource} />
           <div className="global-video-shade" aria-hidden="true"></div>
           <GeoArchiveField />
           <Navbar page={page} onNavigate={navigate} />
