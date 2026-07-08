@@ -258,6 +258,114 @@
         linear-gradient(90deg, rgba(0,0,0,0.42) 0%, transparent 28%, transparent 72%, rgba(0,0,0,0.48) 100%);
     }
 
+    .video-boot-screen {
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+      padding: 28px;
+      background:
+        radial-gradient(circle at 50% 18%, rgba(216,180,106,0.18), transparent 34%),
+        radial-gradient(circle at 24% 72%, rgba(255,255,255,0.08), transparent 26%),
+        #050403;
+      color: #fff;
+    }
+
+    .video-boot-screen__aura {
+      position: absolute;
+      width: min(62vw, 760px);
+      aspect-ratio: 1;
+      border-radius: 999px;
+      background:
+        conic-gradient(from 120deg, rgba(216,180,106,0.04), rgba(255,255,255,0.16), rgba(216,180,106,0.28), rgba(255,255,255,0.08), rgba(216,180,106,0.04));
+      filter: blur(42px);
+      opacity: 0.72;
+      animation: bootAura 9s linear infinite;
+    }
+
+    .video-boot-screen__panel {
+      width: min(560px, 100%);
+      border-radius: 34px;
+      padding: clamp(28px, 5vw, 46px);
+      text-align: center;
+      isolation: isolate;
+    }
+
+    .video-boot-screen__kicker {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 26px;
+      padding: 0 12px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.08);
+      color: rgba(255,255,255,0.72);
+      font-size: 0.72rem;
+      font-weight: 600;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+
+    .video-boot-screen__title {
+      margin-top: 18px;
+      font-family: "Zhi Mang Xing", "Ma Shan Zheng", "Noto Serif SC", "Songti SC", serif;
+      font-size: clamp(3rem, 12vw, 6.8rem);
+      line-height: 0.95;
+      letter-spacing: 0.08em;
+      color: rgba(255,249,233,0.98);
+      text-shadow: 0 24px 78px rgba(0,0,0,0.72), 0 0 32px rgba(216,180,106,0.18);
+    }
+
+    .video-boot-screen__text {
+      margin: 18px auto 0;
+      max-width: 32ch;
+      color: rgba(255,255,255,0.72);
+      font-size: 0.98rem;
+      line-height: 1.8;
+      text-wrap: pretty;
+    }
+
+    .video-boot-screen__bar {
+      position: relative;
+      height: 6px;
+      margin-top: 28px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.12);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.14);
+    }
+
+    .video-boot-screen__bar span {
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 0%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, rgba(255,255,255,0.92), rgba(216,180,106,0.9));
+      box-shadow: 0 0 22px rgba(216,180,106,0.32);
+      transition: width 0.34s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .video-boot-screen__meta {
+      display: flex;
+      justify-content: space-between;
+      gap: 18px;
+      margin-top: 12px;
+      color: rgba(255,255,255,0.56);
+      font-size: 0.8rem;
+      letter-spacing: 0.02em;
+    }
+
+    @keyframes bootAura {
+      from {
+        transform: rotate(0deg) scale(0.96);
+      }
+      to {
+        transform: rotate(360deg) scale(0.96);
+      }
+    }
+
     .section-shell.bg-black,
     section.bg-black {
       background: transparent !important;
@@ -1265,8 +1373,126 @@
       booking: "./background_video/7. 公益建档.mp4"
     };
 
-    function getVideoSourceForPage(page) {
-      return VIDEO_SOURCES[page] || VIDEO_SOURCES.home;
+    const VIDEO_SOURCE_ENTRIES = Object.entries(VIDEO_SOURCES);
+
+    function getVideoSourceForPage(page, sourceMap = VIDEO_SOURCES) {
+      return sourceMap[page] || sourceMap.home || VIDEO_SOURCES.home;
+    }
+
+    function clampProgress(value) {
+      return Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0));
+    }
+
+    async function fetchVideoBlobUrl(key, src, onProgress, signal) {
+      const response = await fetch(src, { cache: "force-cache", signal });
+      if (!response.ok) throw new Error(`Video preload failed: ${key}`);
+
+      const contentType = response.headers.get("content-type") || "video/mp4";
+      const totalBytes = Number(response.headers.get("content-length")) || 0;
+
+      if (!response.body || !response.body.getReader) {
+        const blob = await response.blob();
+        onProgress(key, 1);
+        return URL.createObjectURL(blob);
+      }
+
+      const reader = response.body.getReader();
+      const chunks = [];
+      let receivedBytes = 0;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        receivedBytes += value.byteLength;
+        if (totalBytes > 0) onProgress(key, receivedBytes / totalBytes);
+      }
+
+      onProgress(key, 1);
+      return URL.createObjectURL(new Blob(chunks, { type: contentType }));
+    }
+
+    function useVideoPreloader() {
+      const [state, setState] = useState({
+        ready: false,
+        progress: 0,
+        loaded: 0,
+        total: VIDEO_SOURCE_ENTRIES.length,
+        failed: 0,
+        sources: VIDEO_SOURCES
+      });
+
+      useEffect(() => {
+        let cancelled = false;
+        const controller = new AbortController();
+        const objectUrls = [];
+        const progressByKey = Object.fromEntries(VIDEO_SOURCE_ENTRIES.map(([key]) => [key, 0]));
+        let completed = 0;
+        let failed = 0;
+
+        const updateProgress = () => {
+          if (cancelled) return;
+          const progressSum = VIDEO_SOURCE_ENTRIES.reduce((sum, [key]) => sum + clampProgress(progressByKey[key]), 0);
+          setState((current) => ({
+            ...current,
+            progress: Math.max(current.progress, progressSum / VIDEO_SOURCE_ENTRIES.length),
+            loaded: completed,
+            failed
+          }));
+        };
+
+        const onFileProgress = (key, progress) => {
+          progressByKey[key] = Math.max(progressByKey[key] || 0, clampProgress(progress));
+          updateProgress();
+        };
+
+        const preloadTasks = VIDEO_SOURCE_ENTRIES.map(async ([key, src]) => {
+          try {
+            const blobUrl = await fetchVideoBlobUrl(key, src, onFileProgress, controller.signal);
+            objectUrls.push(blobUrl);
+            progressByKey[key] = 1;
+            completed += 1;
+            updateProgress();
+            return [key, blobUrl];
+          } catch (error) {
+            if (controller.signal.aborted) return [key, src];
+            progressByKey[key] = 1;
+            completed += 1;
+            failed += 1;
+            updateProgress();
+            return [key, src];
+          }
+        });
+
+        Promise.all(preloadTasks).then((entries) => {
+          if (cancelled) {
+            objectUrls.forEach((url) => URL.revokeObjectURL(url));
+            return;
+          }
+
+          const sources = { ...VIDEO_SOURCES };
+          entries.forEach(([key, url]) => {
+            sources[key] = url;
+          });
+
+          setState({
+            ready: true,
+            progress: 1,
+            loaded: VIDEO_SOURCE_ENTRIES.length,
+            total: VIDEO_SOURCE_ENTRIES.length,
+            failed,
+            sources
+          });
+        });
+
+        return () => {
+          cancelled = true;
+          controller.abort();
+          objectUrls.forEach((url) => URL.revokeObjectURL(url));
+        };
+      }, []);
+
+      return state;
     }
 
     const OUTPUT_ITEMS = [
@@ -1842,7 +2068,7 @@
       return <canvas ref={canvasRef} className="geo-canvas" aria-hidden="true" />;
     }
 
-    function ScrollVideoBackdrop({ src }) {
+    function ScrollVideoBackdrop({ src, mode = "scroll" }) {
       const videoRef = useRef(null);
 
       useEffect(() => {
@@ -1850,10 +2076,19 @@
         if (!video) return undefined;
 
         const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        const isScrollMode = mode === "scroll";
         let scrollTrigger = null;
         let raf = 0;
         let latestProgress = 0;
         let initialized = false;
+
+        const freezeAtEnd = () => {
+          video.pause();
+          if (!Number.isFinite(video.duration) || video.duration <= 0) return;
+          try {
+            video.currentTime = Math.max(0, video.duration - 0.06);
+          } catch (error) {}
+        };
 
         const seekToProgress = () => {
           raf = 0;
@@ -1872,7 +2107,7 @@
           if (!raf) raf = requestAnimationFrame(seekToProgress);
         };
 
-        const setup = () => {
+        const setupScrollMode = () => {
           if (initialized) return;
           initialized = true;
           video.pause();
@@ -1899,26 +2134,52 @@
           }
         };
 
+        const setupPlayOnceMode = () => {
+          if (initialized) return;
+          initialized = true;
+          video.loop = false;
+          video.currentTime = 0;
+
+          if (reduceMotion) {
+            video.pause();
+            return;
+          }
+
+          const playPromise = video.play();
+          if (playPromise && typeof playPromise.catch === "function") {
+            playPromise.catch(() => {
+              video.setAttribute("data-playback-state", "blocked");
+            });
+          }
+        };
+
+        const setup = isScrollMode ? setupScrollMode : setupPlayOnceMode;
+
         video.addEventListener("loadedmetadata", setup);
+        video.addEventListener("ended", freezeAtEnd);
         video.load();
         if (video.readyState >= 1) setup();
 
         return () => {
           if (raf) cancelAnimationFrame(raf);
           if (scrollTrigger) scrollTrigger.kill();
+          video.pause();
           video.removeEventListener("loadedmetadata", setup);
+          video.removeEventListener("ended", freezeAtEnd);
         };
-      }, [src]);
+      }, [src, mode]);
 
       return (
         <div className="scroll-video-backdrop" aria-hidden="true">
           <video
             ref={videoRef}
+            autoPlay={mode === "playOnce"}
+            loop={false}
             muted
             playsInline
             preload="auto"
             src={src}
-            aria-label="侨批智档全站滚动背景视频"
+            aria-label={mode === "scroll" ? "侨批智档首页滚动背景视频" : "侨批智档页面背景视频"}
           />
         </div>
       );
@@ -3105,8 +3366,36 @@
       return NAV_ITEMS.some((item) => item.page === hash) ? hash : "home";
     }
 
+    function VideoBootScreen({ progress, loaded, total, failed }) {
+      const percent = Math.round(clampProgress(progress) * 100);
+      const statusText = failed > 0
+        ? `已预载 ${loaded}/${total} 个视频，${failed} 个将使用直连降级`
+        : `已预载 ${loaded}/${total} 个背景视频`;
+
+      return (
+        <div className="video-boot-screen" role="status" aria-live="polite" aria-label="正在预载全站背景视频">
+          <div className="video-boot-screen__aura" aria-hidden="true"></div>
+          <div className="video-boot-screen__panel liquid-glass-strong">
+            <span className="video-boot-screen__kicker">Qiaopi Memory Atlas</span>
+            <div className="video-boot-screen__title">侨批智档</div>
+            <p className="video-boot-screen__text">
+              正在预载全站背景影像，完成后进入页面，切换模块时视频会立即响应。
+            </p>
+            <div className="video-boot-screen__bar" aria-hidden="true">
+              <span style={{ width: `${percent}%` }}></span>
+            </div>
+            <div className="video-boot-screen__meta">
+              <span>{statusText}</span>
+              <span>{percent}%</span>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     function App() {
       const [page, setPage] = useState(getPageFromLocation);
+      const videoBoot = useVideoPreloader();
 
       const navigate = (nextPage) => {
         const target = NAV_ITEMS.some((item) => item.page === nextPage) ? nextPage : "home";
@@ -3164,11 +3453,23 @@
         : page === "outputs"
           ? <OutputsPage key="page-outputs" onNavigate={navigate} />
           : <DetailPage key={`page-${page}`} page={page} onNavigate={navigate} />;
-      const videoSource = getVideoSourceForPage(page);
+      const videoSource = getVideoSourceForPage(page, videoBoot.sources);
+      const videoMode = page === "home" ? "scroll" : "playOnce";
+
+      if (!videoBoot.ready) {
+        return (
+          <VideoBootScreen
+            progress={videoBoot.progress}
+            loaded={videoBoot.loaded}
+            total={videoBoot.total}
+            failed={videoBoot.failed}
+          />
+        );
+      }
 
       return (
         <div className="min-h-screen bg-transparent text-white">
-          <ScrollVideoBackdrop key={`video-${page}`} src={videoSource} />
+          <ScrollVideoBackdrop key={`video-${page}-${videoSource}`} src={videoSource} mode={videoMode} />
           <div className="global-video-shade" aria-hidden="true"></div>
           <GeoArchiveField />
           <Navbar page={page} onNavigate={navigate} />
