@@ -320,9 +320,11 @@
 
     .video-boot-screen__text {
       margin: 18px auto 0;
-      max-width: 32ch;
+      min-height: 2.25em;
+      max-width: 34ch;
       color: rgba(255,255,255,0.72);
-      font-size: 0.98rem;
+      font-size: clamp(1rem, 2vw, 1.24rem);
+      font-weight: 650;
       line-height: 1.8;
       text-wrap: pretty;
     }
@@ -345,16 +347,6 @@
       background: linear-gradient(90deg, rgba(255,255,255,0.92), rgba(216,180,106,0.9));
       box-shadow: 0 0 22px rgba(216,180,106,0.32);
       transition: width 0.34s cubic-bezier(0.16, 1, 0.3, 1);
-    }
-
-    .video-boot-screen__meta {
-      display: flex;
-      justify-content: space-between;
-      gap: 18px;
-      margin-top: 12px;
-      color: rgba(255,255,255,0.56);
-      font-size: 0.8rem;
-      letter-spacing: 0.02em;
     }
 
     @keyframes bootAura {
@@ -987,17 +979,22 @@
     .rag-chat-preview {
       margin-top: clamp(30px, 4vw, 44px);
       width: min(1260px, 100%);
+      height: clamp(580px, 58vh, 700px);
       border-radius: 1.6rem;
       padding: clamp(16px, 1.7vw, 22px);
       margin-inline: auto;
+      display: flex;
     }
 
     .rag-chat-preview__plate {
+      width: 100%;
+      height: 100%;
       border-radius: 1.25rem;
       background:
         linear-gradient(135deg, rgba(7,7,7,0.9), rgba(12,10,7,0.72)),
         rgba(8,7,6,0.78);
-      min-height: clamp(520px, 48vw, 640px);
+      min-height: 0;
+      overflow: hidden;
       display: flex;
       flex-direction: column;
       padding: clamp(26px, 3vw, 44px);
@@ -1447,10 +1444,11 @@
 
       .rag-chat-preview {
         width: 100%;
+        height: clamp(540px, 72dvh, 660px);
       }
 
       .rag-chat-preview__plate {
-        min-height: 520px;
+        min-height: 0;
         padding: 20px;
       }
 
@@ -1543,6 +1541,18 @@
     };
 
     const VIDEO_SOURCE_ENTRIES = Object.entries(VIDEO_SOURCES);
+    const BOOT_STATUS_ITEMS = [
+      "正在初始化",
+      "Initializing archive field",
+      "数据库调度中",
+      "Database orchestration",
+      "人工智能深度思考中",
+      "AI deep reasoning",
+      "证据链校准中",
+      "Evidence graph aligning",
+      "侨批索引唤醒中",
+      "Memory atlas awakening"
+    ];
 
     function getVideoSourceForPage(page, sourceMap = VIDEO_SOURCES) {
       return sourceMap[page] || sourceMap.home || VIDEO_SOURCES.home;
@@ -1552,112 +1562,222 @@
       return Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0));
     }
 
-    async function fetchVideoBlobUrl(key, src, onProgress, signal) {
-      const response = await fetch(src, { cache: "force-cache", signal });
-      if (!response.ok) throw new Error(`Video preload failed: ${key}`);
+    async function cacheVideoInBrowser(key, src, onProgress, signal, priority = "auto") {
+      const response = await fetch(src, { cache: "force-cache", signal, priority });
+      if (!response.ok) throw new Error(`Video cache warmup failed: ${key}`);
 
-      const contentType = response.headers.get("content-type") || "video/mp4";
       const totalBytes = Number(response.headers.get("content-length")) || 0;
 
       if (!response.body || !response.body.getReader) {
-        const blob = await response.blob();
-        onProgress(key, 1);
-        return URL.createObjectURL(blob);
+        await response.arrayBuffer();
+        if (onProgress) onProgress(key, 1);
+        return true;
       }
 
       const reader = response.body.getReader();
-      const chunks = [];
       let receivedBytes = 0;
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        chunks.push(value);
         receivedBytes += value.byteLength;
-        if (totalBytes > 0) onProgress(key, receivedBytes / totalBytes);
+        if (totalBytes > 0 && onProgress) onProgress(key, receivedBytes / totalBytes);
       }
 
-      onProgress(key, 1);
-      return URL.createObjectURL(new Blob(chunks, { type: contentType }));
+      if (onProgress) onProgress(key, 1);
+      return true;
+    }
+
+    function preloadPlayableVideo(key, src, onProgress, signal) {
+      return new Promise((resolve) => {
+        if (signal.aborted) {
+          resolve(false);
+          return;
+        }
+
+        const video = document.createElement("video");
+        const timers = [];
+        let settled = false;
+
+        const cleanup = () => {
+          timers.forEach((timer) => window.clearTimeout(timer));
+          video.removeEventListener("loadedmetadata", onMetadata);
+          video.removeEventListener("loadeddata", onLoadedData);
+          video.removeEventListener("canplaythrough", onCanPlayThrough);
+          video.removeEventListener("error", onError);
+          signal.removeEventListener("abort", onAbort);
+          try {
+            video.pause();
+            video.removeAttribute("src");
+            video.load();
+          } catch (error) {}
+        };
+
+        const finish = (ok) => {
+          if (settled) return;
+          settled = true;
+          if (ok && onProgress) onProgress(key, 1);
+          cleanup();
+          resolve(ok);
+        };
+
+        function onMetadata() {
+          if (onProgress) onProgress(key, 0.36);
+        }
+
+        function onLoadedData() {
+          if (onProgress) onProgress(key, 0.72);
+          timers.push(window.setTimeout(() => finish(true), 280));
+        }
+
+        function onCanPlayThrough() {
+          finish(true);
+        }
+
+        function onError() {
+          finish(false);
+        }
+
+        function onAbort() {
+          finish(false);
+        }
+
+        signal.addEventListener("abort", onAbort, { once: true });
+        video.addEventListener("loadedmetadata", onMetadata);
+        video.addEventListener("loadeddata", onLoadedData);
+        video.addEventListener("canplaythrough", onCanPlayThrough);
+        video.addEventListener("error", onError);
+        timers.push(window.setTimeout(() => finish(video.readyState >= 1), 2200));
+
+        video.muted = true;
+        video.defaultMuted = true;
+        video.playsInline = true;
+        video.preload = "auto";
+        video.src = src;
+        video.load();
+      });
+    }
+
+    function waitForBrowserIdle(signal, timeout = 2200) {
+      return new Promise((resolve) => {
+        if (signal.aborted) {
+          resolve();
+          return;
+        }
+
+        let taskId;
+        const finish = () => resolve();
+        const abort = () => {
+          if (window.cancelIdleCallback && typeof taskId === "number") {
+            window.cancelIdleCallback(taskId);
+          } else {
+            window.clearTimeout(taskId);
+          }
+          resolve();
+        };
+
+        signal.addEventListener("abort", abort, { once: true });
+        if (window.requestIdleCallback) {
+          taskId = window.requestIdleCallback(finish, { timeout });
+        } else {
+          taskId = window.setTimeout(finish, Math.min(timeout, 900));
+        }
+      });
+    }
+
+    function delay(ms, signal) {
+      return new Promise((resolve) => {
+        if (signal.aborted) {
+          resolve();
+          return;
+        }
+
+        const timer = window.setTimeout(resolve, ms);
+        signal.addEventListener("abort", () => {
+          window.clearTimeout(timer);
+          resolve();
+        }, { once: true });
+      });
     }
 
     function useVideoPreloader() {
       const [state, setState] = useState({
         ready: false,
-        progress: 0,
-        loaded: 0,
-        total: VIDEO_SOURCE_ENTRIES.length,
-        failed: 0,
-        sources: VIDEO_SOURCES
+        progress: 0.06,
+        sources: VIDEO_SOURCES,
+        warmed: {}
       });
 
       useEffect(() => {
         let cancelled = false;
         const controller = new AbortController();
-        const objectUrls = [];
-        const progressByKey = Object.fromEntries(VIDEO_SOURCE_ENTRIES.map(([key]) => [key, 0]));
-        let completed = 0;
-        let failed = 0;
+        const signal = controller.signal;
 
-        const updateProgress = () => {
-          if (cancelled) return;
-          const progressSum = VIDEO_SOURCE_ENTRIES.reduce((sum, [key]) => sum + clampProgress(progressByKey[key]), 0);
+        const setHomeProgress = (key, progress) => {
+          if (cancelled || key !== "home") return;
+          const visibleProgress = 0.06 + clampProgress(progress) * 0.94;
           setState((current) => ({
             ...current,
-            progress: Math.max(current.progress, progressSum / VIDEO_SOURCE_ENTRIES.length),
-            loaded: completed,
-            failed
+            progress: Math.max(current.progress, visibleProgress)
           }));
         };
 
-        const onFileProgress = (key, progress) => {
-          progressByKey[key] = Math.max(progressByKey[key] || 0, clampProgress(progress));
-          updateProgress();
+        const markWarmed = (key, status) => {
+          if (cancelled) return;
+          setState((current) => ({
+            ...current,
+            warmed: { ...current.warmed, [key]: status }
+          }));
         };
 
-        const preloadTasks = VIDEO_SOURCE_ENTRIES.map(async ([key, src]) => {
+        const bootPulse = window.setInterval(() => {
+          setState((current) => {
+            if (current.ready) return current;
+            return { ...current, progress: Math.min(0.82, current.progress + 0.018) };
+          });
+        }, 360);
+
+        const warmRemainingVideos = async () => {
+          const remaining = VIDEO_SOURCE_ENTRIES.filter(([key]) => key !== "home");
+          await delay(5000, signal);
+          for (const [key, src] of remaining) {
+            if (cancelled || signal.aborted) return;
+            await waitForBrowserIdle(signal, 2600);
+            if (cancelled || signal.aborted) return;
+            try {
+              await cacheVideoInBrowser(key, src, null, signal, "low");
+              markWarmed(key, "ready");
+            } catch (error) {
+              if (!signal.aborted) markWarmed(key, "fallback");
+            }
+            await delay(520, signal);
+          }
+        };
+
+        const bootHomeVideo = async () => {
           try {
-            const blobUrl = await fetchVideoBlobUrl(key, src, onFileProgress, controller.signal);
-            objectUrls.push(blobUrl);
-            progressByKey[key] = 1;
-            completed += 1;
-            updateProgress();
-            return [key, blobUrl];
+            const ok = await preloadPlayableVideo("home", VIDEO_SOURCES.home, setHomeProgress, signal);
+            markWarmed("home", ok ? "playable" : "fallback");
           } catch (error) {
-            if (controller.signal.aborted) return [key, src];
-            progressByKey[key] = 1;
-            completed += 1;
-            failed += 1;
-            updateProgress();
-            return [key, src];
-          }
-        });
-
-        Promise.all(preloadTasks).then((entries) => {
-          if (cancelled) {
-            objectUrls.forEach((url) => URL.revokeObjectURL(url));
-            return;
+            if (!signal.aborted) markWarmed("home", "fallback");
           }
 
-          const sources = { ...VIDEO_SOURCES };
-          entries.forEach(([key, url]) => {
-            sources[key] = url;
-          });
-
-          setState({
+          if (cancelled) return;
+          window.clearInterval(bootPulse);
+          setState((current) => ({
+            ...current,
             ready: true,
-            progress: 1,
-            loaded: VIDEO_SOURCE_ENTRIES.length,
-            total: VIDEO_SOURCE_ENTRIES.length,
-            failed,
-            sources
-          });
-        });
+            progress: 1
+          }));
+          warmRemainingVideos();
+        };
+
+        bootHomeVideo();
 
         return () => {
           cancelled = true;
           controller.abort();
-          objectUrls.forEach((url) => URL.revokeObjectURL(url));
+          window.clearInterval(bootPulse);
         };
       }, []);
 
@@ -3657,27 +3777,29 @@
       return NAV_ITEMS.some((item) => item.page === hash) ? hash : "home";
     }
 
-    function VideoBootScreen({ progress, loaded, total, failed }) {
+    function VideoBootScreen({ progress }) {
+      const [statusIndex, setStatusIndex] = useState(0);
       const percent = Math.round(clampProgress(progress) * 100);
-      const statusText = failed > 0
-        ? `已预载 ${loaded}/${total} 个视频，${failed} 个将使用直连降级`
-        : `已预载 ${loaded}/${total} 个背景视频`;
+      const statusText = BOOT_STATUS_ITEMS[statusIndex % BOOT_STATUS_ITEMS.length];
+
+      useEffect(() => {
+        const timer = window.setInterval(() => {
+          setStatusIndex((current) => current + 1);
+        }, 1150);
+        return () => window.clearInterval(timer);
+      }, []);
 
       return (
-        <div className="video-boot-screen" role="status" aria-live="polite" aria-label="正在预载全站背景视频">
+        <div className="video-boot-screen" role="status" aria-live="polite" aria-label="侨批智档正在初始化">
           <div className="video-boot-screen__aura" aria-hidden="true"></div>
           <div className="video-boot-screen__panel liquid-glass-strong">
             <span className="video-boot-screen__kicker">Qiaopi Memory Atlas</span>
             <div className="video-boot-screen__title">侨批智档</div>
             <p className="video-boot-screen__text">
-              正在预载全站背景影像，完成后进入页面，切换模块时视频会立即响应。
+              {statusText}
             </p>
             <div className="video-boot-screen__bar" aria-hidden="true">
               <span style={{ width: `${percent}%` }}></span>
-            </div>
-            <div className="video-boot-screen__meta">
-              <span>{statusText}</span>
-              <span>{percent}%</span>
             </div>
           </div>
         </div>
@@ -3751,9 +3873,6 @@
         return (
           <VideoBootScreen
             progress={videoBoot.progress}
-            loaded={videoBoot.loaded}
-            total={videoBoot.total}
-            failed={videoBoot.failed}
           />
         );
       }
