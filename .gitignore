@@ -1,0 +1,16 @@
+.DS_Store
+*.log
+
+# Local Codex / agent state
+.codex/
+.agents/
+.superpowers/
+docs/superpowers/
+
+# Local verification artifacts
+output/
+
+# Dependency/build folders if the site is later migrated to a build step
+node_modules/
+dist/
+.vite/
