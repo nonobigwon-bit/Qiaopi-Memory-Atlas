@@ -30,15 +30,14 @@
       }
     };
   </script>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
-  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
-  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
-  <script src="https://unpkg.com/framer-motion@11.11.17/dist/framer-motion.js"></script>
-  <script src="https://unpkg.com/gsap@3.13.0/dist/gsap.min.js"></script>
-  <script src="https://unpkg.com/gsap@3.13.0/dist/ScrollTrigger.min.js"></script>
-  <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
-  <script>window.Motion = window.Motion || window.FramerMotion;</script>
+  <script src="https://cdn.tailwindcss.com" defer></script>
+  <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous" defer></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous" defer></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous" defer></script>
+  <script src="https://unpkg.com/framer-motion@11.11.17/dist/framer-motion.js" defer></script>
+  <script src="https://unpkg.com/gsap@3.13.0/dist/gsap.min.js" defer></script>
+  <script src="https://unpkg.com/gsap@3.13.0/dist/ScrollTrigger.min.js" defer></script>
+  <script src="https://unpkg.com/three@0.160.0/build/three.min.js" defer></script>
   <style>
     :root {
       color-scheme: dark;
@@ -346,7 +345,11 @@
       border-radius: inherit;
       background: linear-gradient(90deg, rgba(255,255,255,0.92), rgba(216,180,106,0.9));
       box-shadow: 0 0 22px rgba(216,180,106,0.32);
-      transition: width 0.34s cubic-bezier(0.16, 1, 0.3, 1);
+      transition: width 0.14s linear;
+    }
+
+    .video-boot-screen__static-fill {
+      animation: bootProgressFill 2.7s linear forwards;
     }
 
     @keyframes bootAura {
@@ -355,6 +358,15 @@
       }
       to {
         transform: rotate(360deg) scale(0.96);
+      }
+    }
+
+    @keyframes bootProgressFill {
+      from {
+        width: 0%;
+      }
+      to {
+        width: 100%;
       }
     }
 
@@ -1524,11 +1536,24 @@
   </style>
 </head>
 <body>
-  <div id="root"></div>
+  <script>window.__QIAOPI_BOOT_STARTED_AT = performance.now();</script>
+  <div id="root">
+    <div class="video-boot-screen" role="status" aria-live="polite" aria-label="侨批智档正在初始化">
+      <div class="video-boot-screen__aura" aria-hidden="true"></div>
+      <div class="video-boot-screen__panel liquid-glass-strong">
+        <span class="video-boot-screen__kicker">Qiaopi Memory Atlas</span>
+        <div class="video-boot-screen__title">侨批智档</div>
+        <p class="video-boot-screen__text">正在初始化</p>
+        <div class="video-boot-screen__bar" aria-hidden="true">
+          <span class="video-boot-screen__static-fill"></span>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <script type="text/babel">
     const { useEffect, useMemo, useRef, useState } = React;
-    const { motion } = window.Motion;
+    const { motion } = window.Motion || window.FramerMotion;
 
     const VIDEO_SOURCES = {
       home: "./background_video/1.首页.mp4",
@@ -1541,6 +1566,8 @@
     };
 
     const VIDEO_SOURCE_ENTRIES = Object.entries(VIDEO_SOURCES);
+    const BOOT_DURATION_MS = 3000;
+    const BOOT_PROGRESS_DURATION_MS = 2700;
     const BOOT_STATUS_ITEMS = [
       "正在初始化",
       "Initializing archive field",
@@ -1700,27 +1727,38 @@
       });
     }
 
+    function getBootStartedAt() {
+      return Number.isFinite(window.__QIAOPI_BOOT_STARTED_AT)
+        ? window.__QIAOPI_BOOT_STARTED_AT
+        : performance.now();
+    }
+
+    function getBootSnapshot() {
+      const elapsed = Math.max(0, performance.now() - getBootStartedAt());
+      return {
+        ready: elapsed >= BOOT_DURATION_MS,
+        progress: clampProgress(elapsed / BOOT_PROGRESS_DURATION_MS)
+      };
+    }
+
     function useVideoPreloader() {
-      const [state, setState] = useState({
-        ready: false,
-        progress: 0.06,
-        sources: VIDEO_SOURCES,
-        warmed: {}
+      const [state, setState] = useState(() => {
+        const boot = getBootSnapshot();
+        return {
+          ready: boot.ready,
+          progress: boot.ready ? 1 : boot.progress,
+          sources: VIDEO_SOURCES,
+          warmed: {}
+        };
       });
 
       useEffect(() => {
         let cancelled = false;
         const controller = new AbortController();
         const signal = controller.signal;
-
-        const setHomeProgress = (key, progress) => {
-          if (cancelled || key !== "home") return;
-          const visibleProgress = 0.06 + clampProgress(progress) * 0.94;
-          setState((current) => ({
-            ...current,
-            progress: Math.max(current.progress, visibleProgress)
-          }));
-        };
+        let bootRaf = 0;
+        let bootTimer = 0;
+        let backgroundWarmupStarted = false;
 
         const markWarmed = (key, status) => {
           if (cancelled) return;
@@ -1729,13 +1767,6 @@
             warmed: { ...current.warmed, [key]: status }
           }));
         };
-
-        const bootPulse = window.setInterval(() => {
-          setState((current) => {
-            if (current.ready) return current;
-            return { ...current, progress: Math.min(0.82, current.progress + 0.018) };
-          });
-        }, 360);
 
         const warmRemainingVideos = async () => {
           const remaining = VIDEO_SOURCE_ENTRIES.filter(([key]) => key !== "home");
@@ -1754,30 +1785,54 @@
           }
         };
 
-        const bootHomeVideo = async () => {
+        const startBackgroundWarmup = () => {
+          if (backgroundWarmupStarted || cancelled || signal.aborted) return;
+          backgroundWarmupStarted = true;
+          warmRemainingVideos();
+        };
+
+        const startFixedBoot = () => {
+          const startedAt = getBootStartedAt();
+          const elapsed = Math.max(0, performance.now() - startedAt);
+          const remaining = Math.max(0, BOOT_DURATION_MS - elapsed);
+
+          const updateBootProgress = (now) => {
+            if (cancelled) return;
+            const progress = clampProgress((now - startedAt) / BOOT_PROGRESS_DURATION_MS);
+            setState((current) => current.ready ? current : { ...current, progress });
+            if (progress < 1) bootRaf = window.requestAnimationFrame(updateBootProgress);
+          };
+
+          updateBootProgress(performance.now());
+
+          bootTimer = window.setTimeout(() => {
+            if (cancelled) return;
+            setState((current) => ({
+              ...current,
+              ready: true,
+              progress: 1
+            }));
+            startBackgroundWarmup();
+          }, remaining);
+        };
+
+        const warmHomeVideo = async () => {
           try {
-            const ok = await preloadPlayableVideo("home", VIDEO_SOURCES.home, setHomeProgress, signal);
+            const ok = await preloadPlayableVideo("home", VIDEO_SOURCES.home, null, signal);
             markWarmed("home", ok ? "playable" : "fallback");
           } catch (error) {
             if (!signal.aborted) markWarmed("home", "fallback");
           }
-
-          if (cancelled) return;
-          window.clearInterval(bootPulse);
-          setState((current) => ({
-            ...current,
-            ready: true,
-            progress: 1
-          }));
-          warmRemainingVideos();
         };
 
-        bootHomeVideo();
+        startFixedBoot();
+        warmHomeVideo();
 
         return () => {
           cancelled = true;
           controller.abort();
-          window.clearInterval(bootPulse);
+          window.cancelAnimationFrame(bootRaf);
+          window.clearTimeout(bootTimer);
         };
       }, []);
 
