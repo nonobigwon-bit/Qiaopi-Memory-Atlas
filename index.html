@@ -242,8 +242,9 @@
       height: 100%;
       object-fit: cover;
       object-position: center;
-      filter: saturate(0.9) contrast(1.07) brightness(0.98);
-      transform: scale(1.02);
+      transform: translateZ(0) scale(1.018);
+      backface-visibility: hidden;
+      will-change: transform;
     }
 
     .global-video-shade {
@@ -700,6 +701,11 @@
       mask-image: linear-gradient(90deg, transparent 0%, #000 5%, #000 95%, transparent 100%);
     }
 
+    .showcase-rail--capability {
+      -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 7.5%, #000 92.5%, transparent 100%);
+      mask-image: linear-gradient(90deg, transparent 0%, #000 7.5%, #000 92.5%, transparent 100%);
+    }
+
     .showcase-track {
       display: flex;
       width: max-content;
@@ -728,6 +734,18 @@
       place-items: center;
       border-radius: 1rem;
       color: var(--gold);
+    }
+
+    .capabilities-shell {
+      min-height: 100dvh;
+      overflow: hidden;
+    }
+
+    .capabilities-frame {
+      display: flex;
+      min-height: min(760px, calc(100dvh - 96px));
+      flex-direction: column;
+      justify-content: space-between;
     }
 
     .showcase-card__title {
@@ -1561,7 +1579,7 @@
     const { motion } = window.Motion || window.FramerMotion;
 
     const VIDEO_SOURCES = {
-      home: "./background_video/1.首页.mp4",
+      home: "./background_video/视频节点 5.mp4",
       archive: "./background_video/2. 智能建档.mp4",
       ocr: "./background_video/3. OCR_HTR.mp4",
       semantic: "./background_video/4. 语义抽取.mp4",
@@ -1572,6 +1590,7 @@
 
     const VIDEO_SOURCE_ENTRIES = Object.entries(VIDEO_SOURCES);
     const BOOT_MIN_DURATION_MS = 3000;
+    const BACKGROUND_WARMUP_INITIAL_DELAY_MS = 6800;
     const BOOT_STATUS_ITEMS = [
       "正在初始化",
       "Initializing archive intelligence",
@@ -1770,7 +1789,7 @@
 
         const warmRemainingVideos = async () => {
           const remaining = VIDEO_SOURCE_ENTRIES.filter(([key]) => key !== "home");
-          await delay(900, signal);
+          await delay(BACKGROUND_WARMUP_INITIAL_DELAY_MS, signal);
           for (const [key] of remaining) {
             if (cancelled || signal.aborted) return;
             await waitForBrowserIdle(signal, 2600);
@@ -2216,7 +2235,8 @@
 
         const isMobile = window.matchMedia("(max-width: 760px)").matches;
         const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-        const count = isMobile ? 210 : 410;
+        const count = isMobile ? 180 : 360;
+        const renderIntervalMs = reduceMotion ? 80 : (isMobile ? 48 : 34);
         const scene = new THREE.Scene();
         const camera = new THREE.PerspectiveCamera(58, window.innerWidth / window.innerHeight, 0.1, 1000);
         camera.position.z = isMobile ? 118 : 92;
@@ -2292,6 +2312,7 @@
         let scrollProgress = 0;
         let raf = 0;
         let frame = 0;
+        let lastRenderAt = 0;
         let pairs = [];
 
         let scrollTrigger = null;
@@ -2393,11 +2414,19 @@
         let visible = document.visibilityState !== "hidden";
 
         const animate = () => {
+          const now = performance.now();
           if (!visible) {
             raf = requestAnimationFrame(animate);
             return;
           }
-          const time = performance.now() * 0.001;
+
+          if (now - lastRenderAt < renderIntervalMs) {
+            raf = requestAnimationFrame(animate);
+            return;
+          }
+
+          lastRenderAt = now;
+          const time = now * 0.001;
           updateNodeField(time, scrollProgress);
           renderer.render(scene, camera);
           frame += 1;
@@ -2429,7 +2458,7 @@
       return <canvas ref={canvasRef} className="geo-canvas" aria-hidden="true" />;
     }
 
-    function ScrollVideoBackdrop({ src, mode = "scroll" }) {
+    function ScrollVideoBackdrop({ src }) {
       const videoRef = useRef(null);
 
       useEffect(() => {
@@ -2437,10 +2466,6 @@
         if (!video) return undefined;
 
         const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-        const isScrollMode = mode === "scroll";
-        let scrollTrigger = null;
-        let raf = 0;
-        let latestProgress = 0;
         let initialized = false;
 
         const freezeAtEnd = () => {
@@ -2449,50 +2474,6 @@
           try {
             video.currentTime = Math.max(0, video.duration - 0.06);
           } catch (error) {}
-        };
-
-        const seekToProgress = () => {
-          raf = 0;
-          if (!Number.isFinite(video.duration) || video.duration <= 0) return;
-          const maxTime = Math.max(0, video.duration - 0.08);
-          const targetTime = Math.max(0, Math.min(maxTime, latestProgress * maxTime));
-          if (Math.abs(video.currentTime - targetTime) > 0.018) {
-            try {
-              video.currentTime = targetTime;
-            } catch (error) {}
-          }
-        };
-
-        const scheduleSeek = (progress) => {
-          latestProgress = Math.max(0, Math.min(1, progress));
-          if (!raf) raf = requestAnimationFrame(seekToProgress);
-        };
-
-        const setupScrollMode = () => {
-          if (initialized) return;
-          initialized = true;
-          video.pause();
-          video.currentTime = 0;
-
-          if (reduceMotion) {
-            scheduleSeek(0);
-            return;
-          }
-
-          if (window.gsap && window.ScrollTrigger) {
-            window.gsap.registerPlugin(window.ScrollTrigger);
-            scrollTrigger = window.ScrollTrigger.create({
-              id: "scroll-video-backdrop",
-              trigger: document.documentElement,
-              start: 0,
-              end: () => window.ScrollTrigger.maxScroll(window),
-              invalidateOnRefresh: true,
-              onUpdate: (self) => scheduleSeek(self.progress),
-              onRefresh: (self) => scheduleSeek(self.progress)
-            });
-            scheduleSeek(scrollTrigger.progress || 0);
-            window.ScrollTrigger.refresh();
-          }
         };
 
         const setupPlayOnceMode = () => {
@@ -2514,7 +2495,7 @@
           }
         };
 
-        const setup = isScrollMode ? setupScrollMode : setupPlayOnceMode;
+        const setup = setupPlayOnceMode;
 
         video.addEventListener("loadedmetadata", setup);
         video.addEventListener("ended", freezeAtEnd);
@@ -2522,25 +2503,23 @@
         if (video.readyState >= 1) setup();
 
         return () => {
-          if (raf) cancelAnimationFrame(raf);
-          if (scrollTrigger) scrollTrigger.kill();
           video.pause();
           video.removeEventListener("loadedmetadata", setup);
           video.removeEventListener("ended", freezeAtEnd);
         };
-      }, [src, mode]);
+      }, [src]);
 
       return (
         <div className="scroll-video-backdrop" aria-hidden="true">
           <video
             ref={videoRef}
-            autoPlay={mode === "playOnce"}
+            autoPlay
             loop={false}
             muted
             playsInline
             preload="auto"
             src={src}
-            aria-label={mode === "scroll" ? "侨批智档首页滚动背景视频" : "侨批智档页面背景视频"}
+            aria-label="侨批智档页面背景视频"
           />
         </div>
       );
@@ -2954,7 +2933,7 @@
       const isCapability = variant === "capability";
 
       return (
-        <div className="showcase-rail" style={{ "--showcase-duration": isCapability ? "38s" : "56s" }}>
+        <div className={`showcase-rail ${isCapability ? "showcase-rail--capability" : ""}`} style={{ "--showcase-duration": isCapability ? "38s" : "56s" }}>
           <div
             className="showcase-track"
           >
@@ -3470,8 +3449,8 @@
 
     function CapabilitiesSection() {
       return (
-        <section id="capabilities" className="relative min-h-[100dvh] overflow-hidden bg-black">
-          <div className="content-layer flex min-h-[100dvh] flex-col justify-between px-5 py-24 md:px-10 lg:px-20">
+        <section id="capabilities" className="section-shell capabilities-shell bg-black">
+          <div className="max-frame capabilities-frame">
             <SectionHeader
               title={<>AI 能力聚合</>}
               subtitle="从一张侨批图像，到可信、可检索、可服务的数字档案。"
@@ -3931,7 +3910,6 @@
           ? <OutputsPage key="page-outputs" onNavigate={navigate} />
           : <DetailPage key={`page-${page}`} page={page} onNavigate={navigate} />;
       const videoSource = getVideoSourceForPage(page, videoBoot.sources);
-      const videoMode = page === "home" ? "scroll" : "playOnce";
 
       if (!videoBoot.ready) {
         return (
@@ -3943,7 +3921,7 @@
 
       return (
         <div className="min-h-screen bg-transparent text-white">
-          <ScrollVideoBackdrop key={`video-${page}-${videoSource}`} src={videoSource} mode={videoMode} />
+          <ScrollVideoBackdrop key={`video-${page}-${videoSource}`} src={videoSource} />
           <div className="global-video-shade" aria-hidden="true"></div>
           <GeoArchiveField />
           <Navbar page={page} onNavigate={navigate} />
