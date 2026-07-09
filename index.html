@@ -349,7 +349,8 @@
     }
 
     .video-boot-screen__static-fill {
-      animation: bootProgressFill 2.7s linear forwards;
+      width: 34%;
+      animation: bootProgressScan 1.35s cubic-bezier(0.16, 1, 0.3, 1) infinite;
     }
 
     @keyframes bootAura {
@@ -361,12 +362,17 @@
       }
     }
 
-    @keyframes bootProgressFill {
-      from {
-        width: 0%;
+    @keyframes bootProgressScan {
+      0% {
+        transform: translateX(-120%);
+        opacity: 0.38;
       }
-      to {
-        width: 100%;
+      48% {
+        opacity: 1;
+      }
+      100% {
+        transform: translateX(320%);
+        opacity: 0.38;
       }
     }
 
@@ -1536,14 +1542,13 @@
   </style>
 </head>
 <body>
-  <script>window.__QIAOPI_BOOT_STARTED_AT = performance.now();</script>
   <div id="root">
     <div class="video-boot-screen" role="status" aria-live="polite" aria-label="侨批智档正在初始化">
       <div class="video-boot-screen__aura" aria-hidden="true"></div>
       <div class="video-boot-screen__panel liquid-glass-strong">
         <span class="video-boot-screen__kicker">Qiaopi Memory Atlas</span>
         <div class="video-boot-screen__title">侨批智档</div>
-        <p class="video-boot-screen__text">正在初始化</p>
+        <p class="video-boot-screen__text">首页影像缓存中</p>
         <div class="video-boot-screen__bar" aria-hidden="true">
           <span class="video-boot-screen__static-fill"></span>
         </div>
@@ -1566,17 +1571,15 @@
     };
 
     const VIDEO_SOURCE_ENTRIES = Object.entries(VIDEO_SOURCES);
-    const BOOT_DURATION_MS = 3000;
-    const BOOT_PROGRESS_DURATION_MS = 2700;
     const BOOT_STATUS_ITEMS = [
-      "正在初始化",
-      "Initializing archive field",
+      "首页影像缓存中",
+      "Caching home video layer",
+      "底层视频完整下载中",
+      "Downloading cinematic base",
+      "滚动影像帧序列校准中",
+      "Scroll frame sequence aligning",
       "数据库调度中",
       "Database orchestration",
-      "人工智能深度思考中",
-      "AI deep reasoning",
-      "证据链校准中",
-      "Evidence graph aligning",
       "侨批索引唤醒中",
       "Memory atlas awakening"
     ];
@@ -1613,76 +1616,6 @@
 
       if (onProgress) onProgress(key, 1);
       return true;
-    }
-
-    function preloadPlayableVideo(key, src, onProgress, signal) {
-      return new Promise((resolve) => {
-        if (signal.aborted) {
-          resolve(false);
-          return;
-        }
-
-        const video = document.createElement("video");
-        const timers = [];
-        let settled = false;
-
-        const cleanup = () => {
-          timers.forEach((timer) => window.clearTimeout(timer));
-          video.removeEventListener("loadedmetadata", onMetadata);
-          video.removeEventListener("loadeddata", onLoadedData);
-          video.removeEventListener("canplaythrough", onCanPlayThrough);
-          video.removeEventListener("error", onError);
-          signal.removeEventListener("abort", onAbort);
-          try {
-            video.pause();
-            video.removeAttribute("src");
-            video.load();
-          } catch (error) {}
-        };
-
-        const finish = (ok) => {
-          if (settled) return;
-          settled = true;
-          if (ok && onProgress) onProgress(key, 1);
-          cleanup();
-          resolve(ok);
-        };
-
-        function onMetadata() {
-          if (onProgress) onProgress(key, 0.36);
-        }
-
-        function onLoadedData() {
-          if (onProgress) onProgress(key, 0.72);
-          timers.push(window.setTimeout(() => finish(true), 280));
-        }
-
-        function onCanPlayThrough() {
-          finish(true);
-        }
-
-        function onError() {
-          finish(false);
-        }
-
-        function onAbort() {
-          finish(false);
-        }
-
-        signal.addEventListener("abort", onAbort, { once: true });
-        video.addEventListener("loadedmetadata", onMetadata);
-        video.addEventListener("loadeddata", onLoadedData);
-        video.addEventListener("canplaythrough", onCanPlayThrough);
-        video.addEventListener("error", onError);
-        timers.push(window.setTimeout(() => finish(video.readyState >= 1), 2200));
-
-        video.muted = true;
-        video.defaultMuted = true;
-        video.playsInline = true;
-        video.preload = "auto";
-        video.src = src;
-        video.load();
-      });
     }
 
     function waitForBrowserIdle(signal, timeout = 2200) {
@@ -1727,38 +1660,29 @@
       });
     }
 
-    function getBootStartedAt() {
-      return Number.isFinite(window.__QIAOPI_BOOT_STARTED_AT)
-        ? window.__QIAOPI_BOOT_STARTED_AT
-        : performance.now();
-    }
-
-    function getBootSnapshot() {
-      const elapsed = Math.max(0, performance.now() - getBootStartedAt());
-      return {
-        ready: elapsed >= BOOT_DURATION_MS,
-        progress: clampProgress(elapsed / BOOT_PROGRESS_DURATION_MS)
-      };
-    }
-
     function useVideoPreloader() {
-      const [state, setState] = useState(() => {
-        const boot = getBootSnapshot();
-        return {
-          ready: boot.ready,
-          progress: boot.ready ? 1 : boot.progress,
-          sources: VIDEO_SOURCES,
-          warmed: {}
-        };
+      const [state, setState] = useState({
+        ready: false,
+        progress: 0.03,
+        sources: VIDEO_SOURCES,
+        warmed: {}
       });
 
       useEffect(() => {
         let cancelled = false;
         const controller = new AbortController();
         const signal = controller.signal;
-        let bootRaf = 0;
-        let bootTimer = 0;
         let backgroundWarmupStarted = false;
+        let retryTimer = 0;
+
+        const setHomeDownloadProgress = (key, progress) => {
+          if (cancelled || key !== "home") return;
+          const visibleProgress = 0.03 + clampProgress(progress) * 0.97;
+          setState((current) => ({
+            ...current,
+            progress: Math.max(current.progress, visibleProgress)
+          }));
+        };
 
         const markWarmed = (key, status) => {
           if (cancelled) return;
@@ -1791,21 +1715,10 @@
           warmRemainingVideos();
         };
 
-        const startFixedBoot = () => {
-          const startedAt = getBootStartedAt();
-          const elapsed = Math.max(0, performance.now() - startedAt);
-          const remaining = Math.max(0, BOOT_DURATION_MS - elapsed);
-
-          const updateBootProgress = (now) => {
-            if (cancelled) return;
-            const progress = clampProgress((now - startedAt) / BOOT_PROGRESS_DURATION_MS);
-            setState((current) => current.ready ? current : { ...current, progress });
-            if (progress < 1) bootRaf = window.requestAnimationFrame(updateBootProgress);
-          };
-
-          updateBootProgress(performance.now());
-
-          bootTimer = window.setTimeout(() => {
+        const downloadHomeVideo = async () => {
+          try {
+            await cacheVideoInBrowser("home", VIDEO_SOURCES.home, setHomeDownloadProgress, signal, "high");
+            markWarmed("home", "ready");
             if (cancelled) return;
             setState((current) => ({
               ...current,
@@ -1813,26 +1726,22 @@
               progress: 1
             }));
             startBackgroundWarmup();
-          }, remaining);
-        };
-
-        const warmHomeVideo = async () => {
-          try {
-            const ok = await preloadPlayableVideo("home", VIDEO_SOURCES.home, null, signal);
-            markWarmed("home", ok ? "playable" : "fallback");
           } catch (error) {
-            if (!signal.aborted) markWarmed("home", "fallback");
+            if (!signal.aborted) {
+              markWarmed("home", "retrying");
+              retryTimer = window.setTimeout(() => {
+                if (!cancelled && !signal.aborted) downloadHomeVideo();
+              }, 1600);
+            }
           }
         };
 
-        startFixedBoot();
-        warmHomeVideo();
+        downloadHomeVideo();
 
         return () => {
           cancelled = true;
           controller.abort();
-          window.cancelAnimationFrame(bootRaf);
-          window.clearTimeout(bootTimer);
+          window.clearTimeout(retryTimer);
         };
       }, []);
 
