@@ -1548,7 +1548,7 @@
       <div class="video-boot-screen__panel liquid-glass-strong">
         <span class="video-boot-screen__kicker">Qiaopi Memory Atlas</span>
         <div class="video-boot-screen__title">侨批智档</div>
-        <p class="video-boot-screen__text">首页影像缓存中</p>
+        <p class="video-boot-screen__text">正在初始化</p>
         <div class="video-boot-screen__bar" aria-hidden="true">
           <span class="video-boot-screen__static-fill"></span>
         </div>
@@ -1571,25 +1571,32 @@
     };
 
     const VIDEO_SOURCE_ENTRIES = Object.entries(VIDEO_SOURCES);
+    const BOOT_MIN_DURATION_MS = 3000;
     const BOOT_STATUS_ITEMS = [
-      "首页影像缓存中",
-      "Caching home video layer",
-      "底层视频完整下载中",
-      "Downloading cinematic base",
-      "滚动影像帧序列校准中",
-      "Scroll frame sequence aligning",
+      "正在初始化",
+      "Initializing archive intelligence",
       "数据库调度中",
       "Database orchestration",
+      "人工智能深度思考中",
+      "AI deep reasoning",
+      "证据链校准中",
+      "Evidence graph aligning",
       "侨批索引唤醒中",
       "Memory atlas awakening"
     ];
 
     function getVideoSourceForPage(page, sourceMap = VIDEO_SOURCES) {
-      return sourceMap[page] || sourceMap.home || VIDEO_SOURCES.home;
+      const requestedSource = sourceMap[page] || sourceMap.home || VIDEO_SOURCES.home;
+      if (page === "home" || isPreloadedVideoSource(requestedSource)) return requestedSource;
+      return isPreloadedVideoSource(sourceMap.home) ? sourceMap.home : requestedSource;
     }
 
     function clampProgress(value) {
       return Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0));
+    }
+
+    function isPreloadedVideoSource(src) {
+      return typeof src === "string" && src.startsWith("blob:");
     }
 
     async function cacheVideoInBrowser(key, src, onProgress, signal, priority = "auto") {
@@ -1597,25 +1604,29 @@
       if (!response.ok) throw new Error(`Video cache warmup failed: ${key}`);
 
       const totalBytes = Number(response.headers.get("content-length")) || 0;
+      const contentType = response.headers.get("content-type") || "video/mp4";
 
       if (!response.body || !response.body.getReader) {
-        await response.arrayBuffer();
+        const blob = await response.blob();
         if (onProgress) onProgress(key, 1);
-        return true;
+        return URL.createObjectURL(blob);
       }
 
       const reader = response.body.getReader();
       let receivedBytes = 0;
+      const chunks = [];
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
+        chunks.push(value);
         receivedBytes += value.byteLength;
         if (totalBytes > 0 && onProgress) onProgress(key, receivedBytes / totalBytes);
       }
 
       if (onProgress) onProgress(key, 1);
-      return true;
+      const blob = new Blob(chunks, { type: contentType });
+      return URL.createObjectURL(blob);
     }
 
     function waitForBrowserIdle(signal, timeout = 2200) {
@@ -1660,13 +1671,14 @@
       });
     }
 
-    function useVideoPreloader() {
+    function useVideoPreloader(activePage = "home") {
       const [state, setState] = useState({
         ready: false,
         progress: 0.03,
         sources: VIDEO_SOURCES,
         warmed: {}
       });
+      const preloadVideoRef = useRef(null);
 
       useEffect(() => {
         let cancelled = false;
@@ -1674,14 +1686,42 @@
         const signal = controller.signal;
         let backgroundWarmupStarted = false;
         let retryTimer = 0;
+        let bootRaf = 0;
+        let homeDownloadProgress = 0.03;
+        let homeDownloadReady = false;
+        const bootStartedAt = performance.now();
+        const preloadedObjectUrls = new Set();
+        const loadedKeys = new Set();
+        const inflightKeys = new Map();
+
+        const getTimeGateProgress = () => clampProgress((performance.now() - bootStartedAt) / BOOT_MIN_DURATION_MS);
+
+        const setBootProgress = (progress) => {
+          if (cancelled) return;
+          setState((current) => ({
+            ...current,
+            progress: Math.max(current.progress, clampProgress(progress))
+          }));
+        };
+
+        const tickBootProgress = () => {
+          if (cancelled) return;
+          const timeGateProgress = getTimeGateProgress();
+          const visibleProgress = homeDownloadReady
+            ? timeGateProgress
+            : Math.max(0.03, Math.min(homeDownloadProgress, timeGateProgress));
+          setBootProgress(visibleProgress);
+
+          if (!homeDownloadReady || timeGateProgress < 1) {
+            bootRaf = window.requestAnimationFrame(tickBootProgress);
+          }
+        };
 
         const setHomeDownloadProgress = (key, progress) => {
           if (cancelled || key !== "home") return;
-          const visibleProgress = 0.03 + clampProgress(progress) * 0.97;
-          setState((current) => ({
-            ...current,
-            progress: Math.max(current.progress, visibleProgress)
-          }));
+          homeDownloadProgress = 0.03 + clampProgress(progress) * 0.97;
+          const timeGateProgress = getTimeGateProgress();
+          setBootProgress(Math.max(0.03, Math.min(homeDownloadProgress, timeGateProgress)));
         };
 
         const markWarmed = (key, status) => {
@@ -1692,16 +1732,51 @@
           }));
         };
 
+        const storePreloadedVideo = (key, objectUrl) => {
+          if (!objectUrl) return;
+          if (cancelled || signal.aborted) {
+            URL.revokeObjectURL(objectUrl);
+            return;
+          }
+
+          preloadedObjectUrls.add(objectUrl);
+          setState((current) => ({
+            ...current,
+            sources: { ...current.sources, [key]: objectUrl },
+            warmed: { ...current.warmed, [key]: "ready" }
+          }));
+        };
+
+        const preloadVideoSource = (key, progressHandler = null, priority = "auto") => {
+          const src = VIDEO_SOURCES[key];
+          if (!src || loadedKeys.has(key)) return Promise.resolve(null);
+          if (inflightKeys.has(key)) return inflightKeys.get(key);
+
+          const preloadPromise = cacheVideoInBrowser(key, src, progressHandler, signal, priority)
+            .then((objectUrl) => {
+              loadedKeys.add(key);
+              storePreloadedVideo(key, objectUrl);
+              return objectUrl;
+            })
+            .finally(() => {
+              inflightKeys.delete(key);
+            });
+
+          inflightKeys.set(key, preloadPromise);
+          return preloadPromise;
+        };
+
+        preloadVideoRef.current = (key, priority = "auto") => preloadVideoSource(key, null, priority);
+
         const warmRemainingVideos = async () => {
           const remaining = VIDEO_SOURCE_ENTRIES.filter(([key]) => key !== "home");
-          await delay(5000, signal);
-          for (const [key, src] of remaining) {
+          await delay(900, signal);
+          for (const [key] of remaining) {
             if (cancelled || signal.aborted) return;
             await waitForBrowserIdle(signal, 2600);
             if (cancelled || signal.aborted) return;
             try {
-              await cacheVideoInBrowser(key, src, null, signal, "low");
-              markWarmed(key, "ready");
+              await preloadVideoSource(key, null, "low");
             } catch (error) {
               if (!signal.aborted) markWarmed(key, "fallback");
             }
@@ -1717,17 +1792,31 @@
 
         const downloadHomeVideo = async () => {
           try {
-            await cacheVideoInBrowser("home", VIDEO_SOURCES.home, setHomeDownloadProgress, signal, "high");
-            markWarmed("home", "ready");
+            homeDownloadReady = false;
+            homeDownloadProgress = 0.03;
+            await preloadVideoSource("home", setHomeDownloadProgress, "high");
+            homeDownloadReady = true;
             if (cancelled) return;
-            setState((current) => ({
-              ...current,
-              ready: true,
-              progress: 1
-            }));
-            startBackgroundWarmup();
+
+            const finishBoot = () => {
+              if (cancelled || signal.aborted) return;
+              setState((current) => ({
+                ...current,
+                ready: true,
+                progress: 1
+              }));
+              startBackgroundWarmup();
+            };
+
+            const remainingBootTime = Math.max(0, BOOT_MIN_DURATION_MS - (performance.now() - bootStartedAt));
+            if (remainingBootTime > 0) {
+              retryTimer = window.setTimeout(finishBoot, remainingBootTime);
+            } else {
+              finishBoot();
+            }
           } catch (error) {
             if (!signal.aborted) {
+              homeDownloadReady = false;
               markWarmed("home", "retrying");
               retryTimer = window.setTimeout(() => {
                 if (!cancelled && !signal.aborted) downloadHomeVideo();
@@ -1736,14 +1825,24 @@
           }
         };
 
+        tickBootProgress();
         downloadHomeVideo();
 
         return () => {
           cancelled = true;
           controller.abort();
+          preloadVideoRef.current = null;
+          window.cancelAnimationFrame(bootRaf);
           window.clearTimeout(retryTimer);
+          preloadedObjectUrls.forEach((objectUrl) => URL.revokeObjectURL(objectUrl));
         };
       }, []);
+
+      useEffect(() => {
+        if (!state.ready || activePage === "home") return;
+        if (isPreloadedVideoSource(state.sources[activePage])) return;
+        preloadVideoRef.current?.(activePage, "high");
+      }, [activePage, state.ready, state.sources]);
 
       return state;
     }
@@ -1952,6 +2051,7 @@
       { id: "deepseek-v4-flash", label: "DeepSeek V4 Flash" },
       { id: "gemini-3-5-flash", label: "Gemini 3.5 Flash" }
     ];
+    const CHAT_ASSISTANT_NAME = "侨批全能智能助手";
 
     const NAV_ITEMS = [
       { label: "首页", page: "home" },
@@ -3017,7 +3117,7 @@
     function RagChatPreview({ demo }) {
       const initialMessages = useMemo(() => ([
         { role: "user", content: demo.question },
-        { role: "assistant", content: demo.answer, evidences: demo.evidences, model: "MiMo 2.5" }
+        { role: "assistant", content: demo.answer, evidences: demo.evidences, model: CHAT_ASSISTANT_NAME }
       ]), [demo]);
       const [messages, setMessages] = useState(initialMessages);
       const [input, setInput] = useState("");
@@ -3069,18 +3169,18 @@
               role: "assistant",
               content: reply,
               evidences: demo.evidences,
-              model: data.displayModel || "MiMo 2.5"
+              model: CHAT_ASSISTANT_NAME
             }
           ]);
         } catch (error) {
-          setNotice("当前本地预览没有可用后端；部署到 Cloudflare 并设置 MIMO_API_KEY 后会自动启用真实 MiMo 2.5 调用。");
+          setNotice("当前本地预览没有可用后端；部署到 Cloudflare 并设置 MIMO_API_KEY 后会自动启用真实智能问答调用。");
           setMessages((current) => [
             ...current,
             {
               role: "assistant",
-              content: "我已收到这个问题。在线部署环境接入 MiMo 2.5 后，会基于档案编号、原文片段、审核状态和授权边界生成可追溯回答。当前本地预览先保留这条演示回复。",
+              content: "我已收到这个问题。在线部署环境接入智能问答服务后，会基于档案编号、原文片段、审核状态和授权边界生成可追溯回答。当前本地预览先保留这条演示回复。",
               evidences: demo.evidences,
-              model: "MiMo 2.5"
+              model: CHAT_ASSISTANT_NAME
             }
           ]);
         } finally {
@@ -3109,7 +3209,7 @@
                 <div key={`${message.role}-${index}`} className={`rag-bubble rag-bubble--${message.role}`}>
                   {message.role === "assistant" && (
                     <span className="rag-bubble__model">
-                      {message.model || "MiMo 2.5"} · 证据约束回答
+                      {message.model || CHAT_ASSISTANT_NAME} · 证据约束回答
                     </span>
                   )}
                   <p>{message.content}</p>
@@ -3127,7 +3227,7 @@
               ))}
               {pending && (
                 <div className="rag-bubble rag-bubble--assistant">
-                  <span className="rag-bubble__model">MiMo 2.5 · 正在检索证据链</span>
+                  <span className="rag-bubble__model">{CHAT_ASSISTANT_NAME} · 正在检索证据链</span>
                   <p>正在生成回答，请稍候...</p>
                 </div>
               )}
@@ -3772,7 +3872,7 @@
 
     function App() {
       const [page, setPage] = useState(getPageFromLocation);
-      const videoBoot = useVideoPreloader();
+      const videoBoot = useVideoPreloader(page);
 
       const navigate = (nextPage) => {
         const target = NAV_ITEMS.some((item) => item.page === nextPage) ? nextPage : "home";
