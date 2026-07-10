@@ -1,0 +1,1959 @@
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { motion, MotionConfig } from "framer-motion";
+import { gsap } from "gsap";
+import { ScrollTrigger } from "gsap/ScrollTrigger";
+
+gsap.registerPlugin(ScrollTrigger);
+
+    const VIDEO_SOURCES = {
+      home: "/background_video/视频节点 5.mp4",
+      archive: "/background_video/2. 智能建档.mp4",
+      ocr: "/background_video/3. OCR_HTR.mp4",
+      semantic: "/background_video/4. 语义抽取.mp4",
+      rag: "/background_video/5. 可信 RAG.mp4",
+      outputs: "/background_video/6. 全部成果.mp4",
+      booking: "/background_video/7. 公益建档.mp4"
+    };
+
+    const BOOT_MIN_DURATION_MS = 760;
+    const BOOT_MAX_WAIT_MS = 2600;
+    const BOOT_FONT_WAIT_MS = 2200;
+    const CRITICAL_FONT_QUERIES = [
+      '400 1em "Zhi Mang Xing"',
+      '400 1em "Ma Shan Zheng"',
+      '800 1em "Noto Serif SC"',
+      '600 1em "Noto Sans SC"',
+      '500 1em "Barlow"'
+    ];
+    const BOOT_STATUS_ITEMS = [
+      "正在初始化",
+      "Initializing archive intelligence",
+      "数据库调度中",
+      "Database orchestration",
+      "人工智能深度思考中",
+      "AI deep reasoning",
+      "证据链校准中",
+      "Evidence graph aligning",
+      "侨批索引唤醒中",
+      "Memory atlas awakening"
+    ];
+
+    function getVideoSourceForPage(page, sourceMap = VIDEO_SOURCES) {
+      return sourceMap[page] || sourceMap.home || VIDEO_SOURCES.home;
+    }
+
+    function clampProgress(value) {
+      return Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0));
+    }
+
+    function waitForCriticalFonts(timeoutMs = BOOT_FONT_WAIT_MS) {
+      if (typeof document === "undefined" || !document.fonts) {
+        return Promise.resolve();
+      }
+
+      const timeout = new Promise((resolve) => {
+        window.setTimeout(resolve, timeoutMs);
+      });
+
+      const fontLoads = Promise.allSettled(
+        CRITICAL_FONT_QUERIES.map((query) => document.fonts.load(query))
+      ).then(() => document.fonts.ready);
+
+      return Promise.race([fontLoads, timeout]).catch(() => undefined);
+    }
+
+    function useVideoPreloader() {
+      const [state, setState] = useState({
+        ready: false,
+        progress: 0.03,
+        sources: VIDEO_SOURCES
+      });
+
+      useEffect(() => {
+        let settled = false;
+        let metadataReady = false;
+        let fontsReady = false;
+        let raf = 0;
+        let finishTimer = 0;
+        let maxWaitTimer = 0;
+        const bootStartedAt = performance.now();
+        const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        const probe = document.createElement("video");
+        probe.preload = "metadata";
+        probe.muted = true;
+        probe.playsInline = true;
+
+        const finish = () => {
+          if (settled) return;
+          settled = true;
+          window.cancelAnimationFrame(raf);
+          window.clearTimeout(finishTimer);
+          window.clearTimeout(maxWaitTimer);
+          setState((current) => ({ ...current, ready: true, progress: 1 }));
+        };
+
+        const scheduleFinishIfReady = () => {
+          if (!metadataReady || !fontsReady || settled) return;
+          const elapsed = performance.now() - bootStartedAt;
+          window.clearTimeout(finishTimer);
+          finishTimer = window.setTimeout(finish, Math.max(0, BOOT_MIN_DURATION_MS - elapsed));
+        };
+
+        const finishAfterMinimum = () => {
+          metadataReady = true;
+          scheduleFinishIfReady();
+        };
+
+        waitForCriticalFonts().then(() => {
+          if (settled) return;
+          fontsReady = true;
+          document.documentElement.classList.add("fonts-ready");
+          scheduleFinishIfReady();
+        });
+
+        const tick = () => {
+          if (settled) return;
+          const elapsed = performance.now() - bootStartedAt;
+          const cap = metadataReady && fontsReady ? 1 : 0.92;
+          const progress = reduceMotion ? cap : Math.min(cap, 0.03 + elapsed / BOOT_MAX_WAIT_MS * 0.89);
+          setState((current) => ({ ...current, progress: Math.max(current.progress, progress) }));
+          raf = window.requestAnimationFrame(tick);
+        };
+
+        probe.addEventListener("loadedmetadata", finishAfterMinimum, { once: true });
+        probe.addEventListener("canplay", finishAfterMinimum, { once: true });
+        probe.addEventListener("error", finishAfterMinimum, { once: true });
+        probe.src = VIDEO_SOURCES.home;
+        probe.load();
+        maxWaitTimer = window.setTimeout(() => {
+          document.documentElement.classList.add("fonts-ready");
+          finish();
+        }, BOOT_MAX_WAIT_MS);
+        tick();
+
+        return () => {
+          settled = true;
+          probe.removeAttribute("src");
+          probe.load();
+          window.cancelAnimationFrame(raf);
+          window.clearTimeout(finishTimer);
+          window.clearTimeout(maxWaitTimer);
+        };
+      }, []);
+
+      return state;
+    }
+
+    const OUTPUT_ITEMS = [
+      {
+        id: "output-archive-workbench",
+        icon: "Archive",
+        title: "侨批智能建档与图像修复工作台",
+        desc: "支持原图、增强图、病害标注图、公开展示图的多版本管理，完成图像质量评分、基础修复和保存建议生成。",
+        delivery: "数字档案包、增强图、病害标注图、保存建议"
+      },
+      {
+        id: "output-ocr-htr",
+        icon: "Scan",
+        title: "侨批 OCR/HTR 智能识别与释读系统",
+        desc: "面向手写繁体、异体字、竖排文本、信封地址、批局印记和汇款说明生成候选文本，并支持人工校对。",
+        delivery: "候选文本、疑难字列表、人工校对文本、现代释读说明"
+      },
+      {
+        id: "output-semantic",
+        icon: "Brain",
+        title: "侨批语义结构化抽取模型与领域词表",
+        desc: "抽取人物、地点、时间、金额、亲属关系、迁徙线索和事件主题，沉淀异体字、旧地名、亲属称谓、批局名和汇款术语表。",
+        delivery: "结构化字段、主题标签、关系字段、领域词表"
+      },
+      {
+        id: "output-rag",
+        icon: "MessageCircle",
+        title: "侨批可信 RAG 问答与寻根辅助系统",
+        desc: "基于校对文本、元数据、专家注释和授权状态进行检索增强生成，回答同步输出档案编号、原文片段和审核状态。",
+        delivery: "可追溯问答、释读报告、寻根辅助说明、来源引用链"
+      },
+      {
+        id: "output-public-platform",
+        icon: "Globe",
+        title: "侨批数字保护公益平台",
+        desc: "面向持有人、侨胞后代、学校、公共文化机构、研究者和村庄提供统一入口，支持建档、检索、问答、展陈和服务管理。",
+        delivery: "公益平台官网、平台 MVP、管理端、公众端"
+      },
+      {
+        id: "output-service-standard",
+        icon: "CheckCircle",
+        title: "公益服务标准",
+        desc: "明确民间侨批持有人公益建档、授权保存、基础释读、寻根辅助、学校课程和公共展陈的服务流程。",
+        delivery: "服务流程、预约机制、服务记录、年度公益报告模板"
+      },
+      {
+        id: "output-education",
+        icon: "BookOpen",
+        title: "教育展陈与公共文化服务应用",
+        desc: "将脱敏侨批、可信释读、二维码问答和背景说明转化为课程案例、展板说明、导览文本和数字展厅内容。",
+        delivery: "课程材料包、展陈材料、导览文本、公共传播素材"
+      },
+      {
+        id: "output-delivery",
+        icon: "Database",
+        title: "平台成果包与交付标准",
+        desc: "统一定义图像、文本、字段、注释、授权、审核记录和公开版本的交付格式，保障成果可复核、可迁移、可复制。",
+        delivery: "数据字段规范、审核记录、授权模板、平台使用手册"
+      },
+      {
+        id: "output-dongxi",
+        icon: "MapPin",
+        title: "东溪村试点建设方案",
+        desc: "以东溪村为首个试点样本，完成样本采集、技术适配、平台试运行和公益服务验证。",
+        delivery: "试点样本库、服务记录、试点评估、村庄文化资源清单"
+      },
+      {
+        id: "output-replication",
+        icon: "Route",
+        title: "复制推广方案",
+        desc: "基于东溪村试点沉淀采集规范、标注规则、模型评测、RAG 来源引用模板和授权脱敏机制，复制至潮汕其他侨乡、闽粤侨乡和海外侨胞社群。",
+        delivery: "推广手册、采集规范、标注规范、授权模板、公益服务机制"
+      }
+    ];
+
+    const CAPABILITY_ITEMS = [
+      {
+        title: "图像增强与病害检测",
+        en: "Image Repair",
+        icon: "Scan",
+        tags: ["增强图", "病害标注", "质量评分", "保存建议"],
+        desc: "对侨批原图进行去阴影、倾斜校正、对比度增强和病害区域标注，为长期保存生成清晰、可复核的图像版本。"
+      },
+      {
+        title: "OCR/HTR 智能识别",
+        en: "Text Recognition",
+        icon: "Eye",
+        tags: ["手写繁体", "疑难字", "版面分析", "人工校对"],
+        desc: "面向手写繁体、异体字、竖排文本、信封地址、批局印记和汇款说明生成候选文本，并支持人工复核。"
+      },
+      {
+        title: "语义结构化抽取",
+        en: "Semantic Fields",
+        icon: "Brain",
+        tags: ["人物地点", "金额时间", "亲属关系", "事件主题"],
+        desc: "抽取人物、地点、时间、金额、亲属关系和迁徙事件，沉淀旧地名、亲属称谓、批局名与汇款术语。"
+      },
+      {
+        title: "可信 RAG 问答",
+        en: "Evidence RAG",
+        icon: "MessageCircle",
+        tags: ["来源引用", "档案编号", "审核状态", "拒答边界"],
+        desc: "基于校对文本、元数据、专家注释和授权状态进行检索增强生成，回答必须同步输出来源链。"
+      },
+      {
+        title: "隐私脱敏与授权控制",
+        en: "Privacy Control",
+        icon: "Lock",
+        tags: ["敏感识别", "分级授权", "公开版本", "撤回记录"],
+        desc: "区分原件保存、内部研究、教学展示和公开传播的授权边界，保障家庭信息与文化服务之间的平衡。"
+      },
+      {
+        title: "公益服务管理",
+        en: "Public Service",
+        icon: "Users",
+        tags: ["预约机制", "服务记录", "年度报告", "试点评估"],
+        desc: "记录公益建档、基础释读、寻根辅助、学校课程和公共展陈服务，让试点经验能够持续复制。"
+      }
+    ];
+
+    const PAGE_CONFIGS = {
+      archive: {
+        kicker: "智能建档",
+        title: "侨批智能建档与图像修复工作台",
+        subtitle: "从原件影像、增强图、病害标注到保存建议，建立可审核、可迁移、可长期维护的数字档案包。",
+        icon: "Archive",
+        outputId: "output-archive-workbench",
+        actions: ["上传侨批图像", "生成保存建议", "导出档案包"],
+        points: [
+          ["多版本图像管理", "保留原图、增强图、病害标注图和公开展示图，便于复核与长期保存。"],
+          ["质量评分与修复建议", "对阴影、模糊、破损、折痕和文字可读性生成保存建议。"],
+          ["授权与公开边界", "为家庭保存、教学展示和公开传播分别生成授权状态。"]
+        ]
+      },
+      ocr: {
+        kicker: "OCR/HTR",
+        title: "侨批 OCR/HTR 智能识别与释读系统",
+        subtitle: "面向手写繁体、异体字、竖排版式和批局印记生成候选文本，把机器识别与人工复核放在同一条证据链里。",
+        icon: "Scan",
+        outputId: "output-ocr-htr",
+        actions: ["版面分析", "疑难字标注", "人工校对"],
+        points: [
+          ["候选文本生成", "识别正文、信封地址、汇款说明和批局印记，保留低置信度字符。"],
+          ["疑难字清单", "自动沉淀异体字、旧称谓和潮汕方言词，供人工校对优先处理。"],
+          ["现代释读说明", "将原文释读与现代说明分层呈现，避免覆盖原始文本。"]
+        ]
+      },
+      semantic: {
+        kicker: "语义抽取",
+        title: "侨批语义结构化抽取模型与领域词表",
+        subtitle: "从侨批文本中抽取人物、地点、金额、时间、亲属关系和事件主题，形成可检索、可统计、可关联的知识字段。",
+        icon: "Brain",
+        outputId: "output-semantic",
+        actions: ["实体识别", "关系抽取", "词表沉淀"],
+        points: [
+          ["核心字段抽取", "识别人物、地点、时间、金额、批局、亲属称谓和迁徙线索。"],
+          ["关系与事件主题", "把家书中的汇款、问候、托付和迁徙信息转化为关系字段。"],
+          ["侨批领域词表", "沉淀异体字、旧地名、亲属称谓、批局名和汇款术语。"]
+        ]
+      },
+      rag: {
+        kicker: "可信 RAG",
+        title: "侨批可信 RAG 问答与寻根辅助系统",
+        subtitle: "每一次回答都绑定档案编号、原文片段、审核状态和授权边界，让寻根、教学与研究都有可追溯来源。",
+        icon: "MessageCircle",
+        outputId: "output-rag",
+        actions: ["检索来源", "生成回答", "标注审核状态"],
+        chatDemo: {
+          status: "证据链已锁定",
+          question: "这封侨批能说明寄件人与东溪村的关系吗？",
+          answer: "可以作为线索，但不能直接下结论。系统识别到寄件地、收件地、汇款说明与亲属称谓，当前建议以“同村亲属往来”记录，并等待人工校对补齐疑难字。",
+          evidences: [
+            ["档案编号", "DX-QP-0001"],
+            ["原文片段", "寄银并问安"],
+            ["审核状态", "待专家复核"],
+            ["授权边界", "教学脱敏版"]
+          ],
+          input: "继续追问人物关系、地名线索或汇款金额..."
+        },
+        points: [
+          ["来源引用链", "回答同步输出档案编号、字段来源、原文片段和专家注释。"],
+          ["拒答边界", "当授权不足或证据不足时，系统明确拒答并说明需要补充的信息。"],
+          ["寻根辅助说明", "把人物、地点、时间和迁徙线索串联成可供后续核验的说明。"]
+        ]
+      },
+      booking: {
+        kicker: "公益建档",
+        title: "预约公益建档服务",
+        subtitle: "面向侨批持有人、侨胞后代、学校和公共文化机构，提供授权采集、基础释读、寻根辅助与教育展陈服务。",
+        icon: "Users",
+        outputId: "output-service-standard",
+        actions: ["登记持有人", "确认授权范围", "安排采集服务"],
+        points: [
+          ["服务对象", "侨批持有人、侨胞后代、学校师生、公共文化机构和侨乡村庄。"],
+          ["服务流程", "登记、授权、采集、增强、识别、校对、脱敏和公开版本生成。"],
+          ["交付内容", "数字档案包、保存建议、释读说明、寻根辅助报告和展陈材料。"]
+        ]
+      }
+    };
+
+    const CHAT_MODEL_OPTIONS = [
+      { id: "mimo-2-5", label: "侨批资料库高精度人工智能大模型" }
+    ];
+    const CHAT_ASSISTANT_NAME = "侨批资料库高精度人工智能大模型";
+
+    const NAV_ITEMS = [
+      { label: "首页", page: "home" },
+      { label: "智能建档", page: "archive" },
+      { label: "OCR/HTR", page: "ocr" },
+      { label: "语义抽取", page: "semantic" },
+      { label: "可信 RAG", page: "rag" },
+      { label: "全部成果", page: "outputs" },
+      { label: "公益建档", page: "booking", primary: true }
+    ];
+
+    const PAGE_TITLES = Object.fromEntries(NAV_ITEMS.map((item) => [item.page, item.label]));
+
+    const ICON_PATHS = {
+      ArrowUpRight: <><path d="M7 17 17 7" /><path d="M7 7h10v10" /></>,
+      ChevronDown: <><path d="m6 9 6 6 6-6" /></>,
+      Pause: <><path d="M8 5v14" /><path d="M16 5v14" /></>,
+      Play: <><path d="m8 5 11 7-11 7V5Z" /></>,
+      Upload: <><path d="M12 16V4" /><path d="m7 9 5-5 5 5" /><path d="M20 16v4H4v-4" /></>,
+      Scan: <><path d="M8 3H5a2 2 0 0 0-2 2v3" /><path d="M16 3h3a2 2 0 0 1 2 2v3" /><path d="M8 21H5a2 2 0 0 1-2-2v-3" /><path d="M16 21h3a2 2 0 0 0 2-2v-3" /><path d="M7 12h10" /></>,
+      Search: <><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></>,
+      Shield: <><path d="M12 3 20 6v6c0 5-3.4 8.6-8 9-4.6-.4-8-4-8-9V6l8-3Z" /><path d="m9 12 2 2 4-5" /></>,
+      BookOpen: <><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H21v16H7a3 3 0 0 0-3 3V5.5Z" /><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H21" /><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H21" /></>,
+      Users: <><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></>,
+      MapPin: <><path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 0 1 16 0Z" /><circle cx="12" cy="10" r="3" /></>,
+      Sparkles: <><path d="m12 3 1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3Z" /><path d="m19 16 .8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8L19 16Z" /><path d="m5 3 .8 2.2L8 6l-2.2.8L5 9l-.8-2.2L2 6l2.2-.8L5 3Z" /></>,
+      FileText: <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" /><path d="M14 2v6h6" /><path d="M8 13h8" /><path d="M8 17h6" /></>,
+      Database: <><ellipse cx="12" cy="5" rx="8" ry="3" /><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5" /><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6" /></>,
+      MessageCircle: <><path d="M21 11.5a8.5 8.5 0 0 1-11.5 8L3 21l1.5-6.2A8.5 8.5 0 1 1 21 11.5Z" /></>,
+      Network: <><circle cx="6" cy="6" r="3" /><circle cx="18" cy="6" r="3" /><circle cx="12" cy="18" r="3" /><path d="M8.5 7.5 10.5 15" /><path d="M15.5 7.5 13.5 15" /><path d="M9 6h6" /></>,
+      Lock: <><rect x="4" y="10" width="16" height="11" rx="2" /><path d="M8 10V7a4 4 0 0 1 8 0v3" /></>,
+      Archive: <><rect x="3" y="4" width="18" height="4" rx="1" /><path d="M5 8v11a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8" /><path d="M10 12h4" /></>,
+      Layers: <><path d="m12 2 9 5-9 5-9-5 9-5Z" /><path d="m3 12 9 5 9-5" /><path d="m3 17 9 5 9-5" /></>,
+      Brain: <><path d="M9 3a3 3 0 0 0-3 3v1a3 3 0 0 0-2 5.2A3.5 3.5 0 0 0 7.5 18H9" /><path d="M15 3a3 3 0 0 1 3 3v1a3 3 0 0 1 2 5.2A3.5 3.5 0 0 1 16.5 18H15" /><path d="M9 3v18" /><path d="M15 3v18" /><path d="M9 8h2" /><path d="M13 8h2" /><path d="M9 14h2" /><path d="M13 14h2" /></>,
+      Globe: <><circle cx="12" cy="12" r="10" /><path d="M2 12h20" /><path d="M12 2a15 15 0 0 1 0 20" /><path d="M12 2a15 15 0 0 0 0 20" /></>,
+      Route: <><circle cx="5" cy="6" r="3" /><circle cx="19" cy="18" r="3" /><path d="M8 6h5a4 4 0 0 1 0 8H9a4 4 0 0 0 0 8h2" /></>,
+      Eye: <><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" /><circle cx="12" cy="12" r="3" /></>,
+      CheckCircle: <><circle cx="12" cy="12" r="10" /><path d="m8 12 3 3 5-6" /></>
+    };
+
+    function Icon({ name, className = "h-5 w-5", strokeWidth = 2 }) {
+      const icon = ICON_PATHS[name] || ICON_PATHS.Sparkles;
+      const iconChildren = React.Children.toArray(icon.props.children);
+      return (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+          {iconChildren}
+        </svg>
+      );
+    }
+
+    function ScrollVideoBackdrop({ src }) {
+      const videoRef = useRef(null);
+      const [failed, setFailed] = useState(false);
+
+      useEffect(() => {
+        const video = videoRef.current;
+        if (!video) return undefined;
+
+        const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        let initialized = false;
+        setFailed(false);
+
+        const freezeAtEnd = () => {
+          video.pause();
+          if (!Number.isFinite(video.duration) || video.duration <= 0) return;
+          try {
+            video.currentTime = Math.max(0, video.duration - 0.06);
+          } catch (error) {}
+        };
+
+        const setupPlayOnceMode = () => {
+          if (initialized) return;
+          initialized = true;
+          video.loop = false;
+          video.currentTime = 0;
+
+          if (reduceMotion) {
+            video.pause();
+            return;
+          }
+
+          const playPromise = video.play();
+          if (playPromise && typeof playPromise.catch === "function") {
+            playPromise.catch(() => {
+              video.setAttribute("data-playback-state", "blocked");
+            });
+          }
+        };
+
+        const setup = setupPlayOnceMode;
+        const handleError = () => setFailed(true);
+        const handleLoadedData = () => setFailed(false);
+
+        video.addEventListener("loadedmetadata", setup);
+        video.addEventListener("loadeddata", handleLoadedData);
+        video.addEventListener("error", handleError);
+        video.addEventListener("ended", freezeAtEnd);
+        video.load();
+        if (video.readyState >= 1) setup();
+
+        return () => {
+          video.pause();
+          video.removeEventListener("loadedmetadata", setup);
+          video.removeEventListener("loadeddata", handleLoadedData);
+          video.removeEventListener("error", handleError);
+          video.removeEventListener("ended", freezeAtEnd);
+        };
+      }, [src]);
+
+      return (
+        <div className="scroll-video-backdrop" data-video-state={failed ? "fallback" : "ready"} aria-hidden="true">
+          <video
+            ref={videoRef}
+            autoPlay
+            loop={false}
+            muted
+            playsInline
+            preload="metadata"
+            src={src}
+            style={{ opacity: failed ? 0 : 1 }}
+          />
+        </div>
+      );
+    }
+
+    function Pill({ children, className = "" }) {
+      return (
+        <span className={`liquid-glass inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-xs font-medium text-white/85 ${className}`}>
+          {children}
+        </span>
+      );
+    }
+
+    function GlassCard({ children, className = "", id, tilt = true }) {
+      const cardRef = useRef(null);
+      const tiltRef = useRef(null);
+
+      useEffect(() => {
+        const card = cardRef.current;
+        if (!card || !tilt || !gsap) return undefined;
+
+        const canTilt = window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+        const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        if (!canTilt || reduceMotion) return undefined;
+
+        gsap.set(card, {
+          transformPerspective: 950,
+          transformOrigin: "50% 50%",
+          transformStyle: "preserve-3d",
+          rotationX: 0,
+          rotationY: 0,
+          y: 0,
+          scale: 1
+        });
+
+        const quickFns = [
+          gsap.quickTo(card, "rotationX", { duration: 0.42, ease: "power3.out", overwrite: "auto" }),
+          gsap.quickTo(card, "rotationY", { duration: 0.42, ease: "power3.out", overwrite: "auto" }),
+          gsap.quickTo(card, "y", { duration: 0.42, ease: "power3.out", overwrite: "auto" }),
+          gsap.quickTo(card, "scale", { duration: 0.42, ease: "power3.out", overwrite: "auto" }),
+          gsap.quickTo(card, "--tilt-x", { duration: 0.32, ease: "power3.out", overwrite: "auto" }),
+          gsap.quickTo(card, "--tilt-y", { duration: 0.32, ease: "power3.out", overwrite: "auto" }),
+          gsap.quickTo(card, "--tilt-light", { duration: 0.28, ease: "power3.out", overwrite: "auto" })
+        ];
+
+        tiltRef.current = {
+          rotateX: quickFns[0],
+          rotateY: quickFns[1],
+          lift: quickFns[2],
+          scale: quickFns[3],
+          lightX: quickFns[4],
+          lightY: quickFns[5],
+          light: quickFns[6],
+          clampRotate: gsap.utils.clamp(-7, 7)
+        };
+
+        return () => {
+          quickFns.forEach((fn) => {
+            if (fn && fn.tween) fn.tween.kill();
+          });
+          tiltRef.current = null;
+          gsap.set(card, { clearProps: "transform" });
+        };
+      }, [tilt]);
+
+      const handlePointerMove = (event) => {
+        const controls = tiltRef.current;
+        const card = cardRef.current;
+        if (!controls || !card) return;
+
+        const rect = card.getBoundingClientRect();
+        const x = (event.clientX - rect.left) / rect.width;
+        const y = (event.clientY - rect.top) / rect.height;
+        const rotateY = controls.clampRotate((x - 0.5) * 13);
+        const rotateX = controls.clampRotate((0.5 - y) * 11);
+
+        controls.rotateX(rotateX);
+        controls.rotateY(rotateY);
+        controls.lift(-6);
+        controls.scale(1.012);
+        controls.lightX(x * 100);
+        controls.lightY(y * 100);
+        controls.light(1);
+      };
+
+      const resetTilt = () => {
+        const controls = tiltRef.current;
+        if (!controls) return;
+        controls.rotateX(0);
+        controls.rotateY(0);
+        controls.lift(0);
+        controls.scale(1);
+        controls.lightX(50);
+        controls.lightY(50);
+        controls.light(0);
+      };
+
+      return (
+        <div
+          ref={cardRef}
+          id={id}
+          className={`liquid-glass glass-edge card-hover rounded-[1.4rem] ${className}`}
+          onPointerMove={handlePointerMove}
+          onPointerLeave={resetTilt}
+          onPointerCancel={resetTilt}
+        >
+          <div className="tilt-card-content">
+            {children}
+          </div>
+        </div>
+      );
+    }
+
+    const revealVariant = {
+      hidden: { filter: "blur(6px)", opacity: 0.72, y: 24, rotateX: 4, scale: 0.99 },
+      visible: { filter: "blur(0px)", opacity: 1, y: 0, rotateX: 0, scale: 1 }
+    };
+
+    function SectionHeader({ title, subtitle, align = "center", className = "" }) {
+      return (
+        <motion.div
+          className={`${align === "center" ? "mx-auto text-center" : ""} ${className}`}
+          initial="hidden"
+          whileInView="visible"
+          viewport={{ once: true, amount: 0.3 }}
+          variants={revealVariant}
+          transition={{ duration: 0.7, ease: "easeOut" }}
+        >
+          <h2 key="section-title" className="serif-title text-[clamp(2.5rem,6vw,6rem)] leading-[1.02] text-white">
+            {title}
+          </h2>
+          {subtitle && (
+            <p key="section-subtitle" className={`mt-5 text-base leading-8 text-white/70 md:text-lg ${align === "center" ? "mx-auto max-w-3xl" : "max-w-3xl"}`}>
+              {subtitle}
+            </p>
+          )}
+        </motion.div>
+      );
+    }
+
+    function BlurText({ phrases }) {
+      const phraseNodes = phrases.map((phrase, index) => (
+        <motion.span
+          key={`${phrase}-${index}`}
+          className="block"
+          initial={{ filter: "blur(10px)", opacity: 0, y: 50 }}
+          animate={{ filter: ["blur(10px)", "blur(5px)", "blur(0px)"], opacity: [0, 0.5, 1], y: [50, -5, 0] }}
+          transition={{ duration: 0.7, times: [0, 0.5, 1], ease: "easeOut", delay: index * 0.1 }}
+        >
+          {phrase}
+        </motion.span>
+      ));
+
+      return (
+        <span className="inline-flex flex-col items-center gap-2 md:gap-3">
+          {React.Children.toArray(phraseNodes)}
+        </span>
+      );
+    }
+
+    function scrollToSection(sectionId) {
+      const target = document.getElementById(sectionId);
+      if (!target) return;
+      const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      target.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
+    }
+
+    function MobileMenu({ open, onClose, page, onNavigate }) {
+      const dialogRef = useRef(null);
+      const previousFocusRef = useRef(null);
+
+      useEffect(() => {
+        document.body.classList.toggle("mobile-menu-open", open);
+        if (!open) return () => document.body.classList.remove("mobile-menu-open");
+
+        previousFocusRef.current = document.activeElement;
+        const dialog = dialogRef.current;
+        const getFocusable = () => Array.from(dialog?.querySelectorAll(
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        ) || []);
+        const focusTimer = window.setTimeout(() => getFocusable()[0]?.focus(), 0);
+
+        const handleKeyDown = (event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            onClose();
+            return;
+          }
+          if (event.key !== "Tab") return;
+          const focusable = getFocusable();
+          if (!focusable.length) return;
+          const first = focusable[0];
+          const last = focusable[focusable.length - 1];
+          if (event.shiftKey && document.activeElement === first) {
+            event.preventDefault();
+            last.focus();
+          } else if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault();
+            first.focus();
+          }
+        };
+
+        document.addEventListener("keydown", handleKeyDown);
+        return () => {
+          window.clearTimeout(focusTimer);
+          document.removeEventListener("keydown", handleKeyDown);
+          document.body.classList.remove("mobile-menu-open");
+          previousFocusRef.current?.focus?.();
+        };
+      }, [open]);
+
+      return (
+        open && (
+          <motion.div
+            ref={dialogRef}
+            id="mobile-navigation-dialog"
+            className="fixed inset-0 z-[80] bg-black/88 p-5 backdrop-blur-2xl md:hidden"
+            role="dialog"
+            aria-modal="true"
+            aria-label="移动端主导航"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+          >
+            <div className="flex items-center justify-between">
+              <button
+                type="button"
+                className="brand-mark liquid-glass"
+                onClick={() => {
+                  onNavigate("home");
+                  onClose();
+                }}
+                aria-label="返回首页"
+              >
+                <span className="brand-mark__text">侨批智档</span>
+              </button>
+              <button type="button" className="liquid-glass rounded-full px-4 py-2 text-sm text-white" onClick={onClose}>关闭</button>
+            </div>
+            <div className="mt-10 grid gap-3">
+              {NAV_ITEMS.map((item) => (
+                <button
+                  key={item.page}
+                  type="button"
+                  onClick={() => {
+                    onNavigate(item.page);
+                    onClose();
+                  }}
+                  className={`liquid-glass rounded-[1.2rem] px-5 py-4 text-left text-base font-medium text-white/88 ${page === item.page ? "bg-white/10 text-white" : ""}`}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </motion.div>
+        )
+      );
+    }
+
+    function Navbar({ page, onNavigate }) {
+      const [mobileOpen, setMobileOpen] = useState(false);
+      const [compact, setCompact] = useState(false);
+      const [compactMenuOpen, setCompactMenuOpen] = useState(false);
+      const [navSlider, setNavSlider] = useState({ x: 6, width: 0, opacity: 0 });
+      const navRef = useRef(null);
+
+      useEffect(() => {
+        if (!gsap || !ScrollTrigger) return undefined;
+
+        gsap.registerPlugin(ScrollTrigger);
+        setCompact(false);
+        setCompactMenuOpen(false);
+
+        const setCompactOnce = (value) => {
+          setCompact((current) => (current === value ? current : value));
+        };
+
+        const scrollTrigger = ScrollTrigger.create({
+          id: "site-header-compact",
+          start: 0,
+          end: () => ScrollTrigger.maxScroll(window),
+          invalidateOnRefresh: true,
+          onUpdate: (self) => {
+            const scrollTop = self.scroll();
+            if (scrollTop <= 28) {
+              setCompactMenuOpen(false);
+              setCompactOnce(false);
+              return;
+            }
+            if (self.direction > 0 && scrollTop > 76) {
+              setCompactMenuOpen(false);
+              setCompactOnce(true);
+            } else if (self.direction < 0) {
+              setCompactOnce(false);
+            }
+          },
+          onRefresh: (self) => {
+            setCompactOnce(self.scroll() > 92);
+          }
+        });
+
+        return () => scrollTrigger.kill();
+      }, [page]);
+
+      useEffect(() => {
+        if (!compact) setCompactMenuOpen(false);
+      }, [compact]);
+
+      useEffect(() => {
+        const nav = navRef.current;
+        if (!nav) return undefined;
+
+        let raf = 0;
+        let timer = 0;
+
+        const updateSlider = () => {
+          const active = nav.querySelector(`[data-page="${page}"]`);
+          if (!active) {
+            setNavSlider((current) => ({ ...current, opacity: 0 }));
+            return;
+          }
+          setNavSlider({
+            x: active.offsetLeft,
+            width: active.offsetWidth,
+            opacity: 1
+          });
+        };
+
+        const scheduleUpdate = () => {
+          if (raf) cancelAnimationFrame(raf);
+          raf = requestAnimationFrame(updateSlider);
+        };
+
+        scheduleUpdate();
+        timer = window.setTimeout(scheduleUpdate, 280);
+        if (document.fonts && document.fonts.ready) {
+          document.fonts.ready.then(scheduleUpdate);
+        }
+
+        window.addEventListener("resize", scheduleUpdate);
+        return () => {
+          if (raf) cancelAnimationFrame(raf);
+          window.clearTimeout(timer);
+          window.removeEventListener("resize", scheduleUpdate);
+        };
+      }, [page, compact, compactMenuOpen]);
+
+      const moveSliderToButton = (button) => {
+        if (!button) return;
+        setNavSlider({
+          x: button.offsetLeft,
+          width: button.offsetWidth,
+          opacity: 1
+        });
+      };
+
+      const handleNavPointerMove = (event) => {
+        const nav = navRef.current;
+        if (!nav) return;
+        const rect = nav.getBoundingClientRect();
+        nav.style.setProperty("--nav-glow-x", `${event.clientX - rect.left}px`);
+        nav.style.setProperty("--nav-glow-y", `${event.clientY - rect.top}px`);
+        nav.style.setProperty("--nav-glow-opacity", "1");
+      };
+
+      const handleNavPointerLeave = () => {
+        const nav = navRef.current;
+        if (!nav) return;
+        nav.style.setProperty("--nav-glow-opacity", "0");
+      };
+
+      const navigateFromNav = (nextPage, event) => {
+        if (event && event.currentTarget) moveSliderToButton(event.currentTarget);
+        setCompactMenuOpen(false);
+        setMobileOpen(false);
+        onNavigate(nextPage);
+      };
+
+      return (
+        <>
+          <header className={`site-header ${compact ? "is-compact" : ""} ${compactMenuOpen ? "is-nav-open" : ""}`}>
+            <div className="site-header__inner">
+              <button
+                type="button"
+                aria-label={compact ? "打开导航" : "返回首页"}
+                aria-expanded={compact ? compactMenuOpen : undefined}
+                className="brand-mark liquid-glass"
+                onClick={() => {
+                  if (compact) {
+                    if (window.matchMedia("(max-width: 760px)").matches) {
+                      setMobileOpen(true);
+                      return;
+                    }
+                    setCompactMenuOpen((value) => !value);
+                    return;
+                  }
+                  navigateFromNav("home");
+                }}
+              >
+                <span className="brand-mark__text">侨批智档</span>
+              </button>
+              <nav
+                ref={navRef}
+                className="primary-nav liquid-glass"
+                aria-label="主导航"
+                onPointerMove={handleNavPointerMove}
+                onPointerLeave={handleNavPointerLeave}
+              >
+                <span
+                  className="nav-slider"
+                  style={{
+                    width: navSlider.width,
+                    opacity: navSlider.opacity,
+                    transform: `translate3d(${navSlider.x}px, 0, 0)`
+                  }}
+                  aria-hidden="true"
+                ></span>
+                {NAV_ITEMS.map((item) => (
+                  <button
+                    key={item.page}
+                    data-page={item.page}
+                    type="button"
+                    className={`nav-action ${item.primary ? "nav-action--primary" : ""} ${page === item.page ? "is-active" : ""}`}
+                    onClick={(event) => navigateFromNav(item.page, event)}
+                  >
+                    {item.label}
+                    {item.primary && <Icon name="ArrowUpRight" className="h-4 w-4" />}
+                  </button>
+                ))}
+              </nav>
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => navigateFromNav("booking")}
+                  className="hidden rounded-full bg-white px-4 py-3 text-sm font-bold text-black sm:inline-flex md:hidden"
+                >
+                  预约
+                </button>
+                <button
+                  type="button"
+                  className="mobile-menu-button liquid-glass"
+                  onClick={() => setMobileOpen(true)}
+                  aria-label="打开菜单"
+                  aria-expanded={mobileOpen}
+                  aria-controls="mobile-navigation-dialog"
+                >
+                  <span className="grid gap-1.5">
+                    <span className="mobile-menu-button__line"></span>
+                    <span className="mobile-menu-button__line"></span>
+                  </span>
+                </button>
+              </div>
+            </div>
+          </header>
+          <MobileMenu open={mobileOpen} onClose={() => setMobileOpen(false)} page={page} onNavigate={onNavigate} />
+        </>
+      );
+    }
+
+    function ShowcaseRail({ items, variant = "output" }) {
+      const railItems = useMemo(() => [...items, ...items], [items]);
+      const isCapability = variant === "capability";
+      const [paused, setPaused] = useState(false);
+
+      return (
+        <div className={`showcase-rail ${isCapability ? "showcase-rail--capability" : ""}`} style={{ "--showcase-duration": isCapability ? "38s" : "56s" }}>
+          <button
+            type="button"
+            className="showcase-rail__control liquid-glass"
+            onClick={() => setPaused((value) => !value)}
+            aria-label={paused ? "继续自动展示" : "暂停自动展示"}
+            title={paused ? "继续自动展示" : "暂停自动展示"}
+          >
+            <Icon name={paused ? "Play" : "Pause"} className="h-4 w-4" />
+          </button>
+          <div
+            className={`showcase-track ${paused ? "is-paused" : ""}`}
+          >
+            {railItems.map((item, index) => {
+              const isOriginal = index < items.length;
+              return (
+                <GlassCard
+                  key={`${item.id || item.title}-${index}`}
+                  id={isOriginal ? item.id : undefined}
+                  className="showcase-card"
+                >
+                  <div className="flex items-start justify-between gap-5">
+                    <div className="showcase-card__icon liquid-glass">
+                      <Icon name={item.icon} className="h-6 w-6" />
+                    </div>
+                    <span className="font-body text-sm font-semibold text-white/42">
+                      {String((index % items.length) + 1).padStart(2, "0")}
+                    </span>
+                  </div>
+                  {isCapability && <p className="showcase-card__en">{item.en}</p>}
+                  <h3 className="showcase-card__title serif-title">{item.title}</h3>
+                  <p className="showcase-card__copy">{item.desc}</p>
+                  {isCapability ? (
+                    <div className="showcase-card__tags">
+                      {item.tags.map((tag) => (
+                        <span key={tag} className="showcase-card__tag">{tag}</span>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="showcase-card__meta">
+                      <span className="text-[var(--gold)]">交付：</span>{item.delivery}
+                    </p>
+                  )}
+                </GlassCard>
+              );
+            })}
+          </div>
+        </div>
+      );
+    }
+
+    function DetailPage({ page, onNavigate }) {
+      const config = PAGE_CONFIGS[page] || PAGE_CONFIGS.archive;
+      const linkedOutput = OUTPUT_ITEMS.find((item) => item.id === config.outputId) || OUTPUT_ITEMS[0];
+
+      return (
+        <section className="page-shell">
+          <div className="max-frame">
+            <motion.div
+              className={`page-hero ${config.chatDemo ? "page-hero--chat" : ""}`}
+              initial={{ opacity: 0, y: 28, filter: "blur(14px)" }}
+              animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+              exit={{ opacity: 0, y: -18, filter: "blur(12px)" }}
+              transition={{ duration: 0.58, ease: "easeOut" }}
+            >
+              <div className="page-kicker liquid-glass">
+                <Icon name={config.icon} className="h-4 w-4 text-[var(--gold)]" />
+                {config.kicker}
+              </div>
+              <h1 className="page-title serif-title text-shadow-soft">{config.title}</h1>
+              <p className="page-subtitle text-shadow-soft">{config.subtitle}</p>
+              {config.chatDemo && <RagChatPreview demo={config.chatDemo} />}
+              <div className="page-action-row">
+                <button
+                  type="button"
+                  onClick={() => onNavigate("outputs")}
+                  className="liquid-glass-strong inline-flex items-center gap-2 rounded-full px-6 py-3.5 text-sm font-bold text-white"
+                >
+                  查看成果体系
+                  <Icon name="ArrowUpRight" className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onNavigate("home")}
+                  className="liquid-glass inline-flex items-center gap-2 rounded-full px-6 py-3.5 text-sm font-bold text-white"
+                >
+                  回到首页
+                </button>
+              </div>
+            </motion.div>
+
+            <div className="page-grid">
+              <motion.div
+                className="page-list"
+                initial="hidden"
+                animate="visible"
+                variants={{ visible: { transition: { staggerChildren: 0.08 } } }}
+              >
+                {config.points.map(([title, desc], index) => (
+                  <motion.div key={title} variants={revealVariant} transition={{ duration: 0.62, ease: "easeOut" }}>
+                    <GlassCard className="p-6">
+                      <div className="flex items-start gap-4">
+                        <div className="liquid-glass grid h-11 w-11 shrink-0 place-items-center rounded-[0.9rem] text-[var(--gold)]">
+                          <span className="font-body text-sm font-bold">{String(index + 1).padStart(2, "0")}</span>
+                        </div>
+                        <div>
+                          <h2 className="font-cnserif text-2xl font-bold text-white">{title}</h2>
+                          <p className="mt-3 text-sm leading-7 text-white/68 md:text-base">{desc}</p>
+                        </div>
+                      </div>
+                    </GlassCard>
+                  </motion.div>
+                ))}
+              </motion.div>
+
+              <motion.div
+                initial={{ opacity: 0, y: 36, filter: "blur(14px)" }}
+                animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                transition={{ duration: 0.72, delay: 0.12, ease: "easeOut" }}
+              >
+                <GlassCard className="p-6 md:p-7" tilt={false}>
+                  <div className="flex items-start justify-between gap-5">
+                    <div>
+                      <p className="text-sm font-semibold text-[var(--gold)]">页面演示面板</p>
+                      <h2 className="mt-2 font-cnserif text-3xl font-bold text-white">{linkedOutput.title}</h2>
+                    </div>
+                    <div className="liquid-glass grid h-12 w-12 shrink-0 place-items-center rounded-[0.95rem] text-white">
+                      <Icon name={linkedOutput.icon} className="h-6 w-6" />
+                    </div>
+                  </div>
+                  <p className="mt-6 text-sm leading-7 text-white/68 md:text-base">{linkedOutput.desc}</p>
+                  <div className="mt-7 grid gap-3">
+                    {config.actions.map((action) => (
+                      <div key={action} className="flex items-center gap-3 rounded-[1rem] bg-white/[0.04] px-4 py-3 text-sm font-semibold text-white/82">
+                        <Icon name="CheckCircle" className="h-4 w-4 shrink-0 text-[var(--gold)]" />
+                        {action}
+                      </div>
+                    ))}
+                  </div>
+                  <p className="mt-7 rounded-[1rem] bg-black/24 px-4 py-4 text-sm leading-7 text-white/78">
+                    <span className="text-[var(--gold)]">交付内容：</span>{linkedOutput.delivery}
+                  </p>
+                </GlassCard>
+              </motion.div>
+            </div>
+          </div>
+        </section>
+      );
+    }
+
+    function RagChatPreview({ demo }) {
+      const initialMessages = useMemo(() => ([
+        { role: "user", content: demo.question, demo: true },
+        { role: "assistant", content: demo.answer, evidences: demo.evidences, model: CHAT_ASSISTANT_NAME, demo: true }
+      ]), [demo]);
+      const [messages, setMessages] = useState(initialMessages);
+      const [input, setInput] = useState("");
+      const selectedModel = CHAT_MODEL_OPTIONS[0].id;
+      const [pending, setPending] = useState(false);
+      const [notice, setNotice] = useState("");
+      const threadRef = useRef(null);
+
+      useEffect(() => {
+        setMessages(initialMessages);
+      }, [initialMessages]);
+
+      useEffect(() => {
+        if (!threadRef.current) return;
+        if (messages.every((message) => message.demo)) {
+          threadRef.current.scrollTop = 0;
+          return;
+        }
+        threadRef.current.scrollTop = threadRef.current.scrollHeight;
+      }, [messages, pending]);
+
+      const submitQuestion = async (event) => {
+        event.preventDefault();
+        const question = input.trim();
+        if (!question || pending) return;
+
+        const nextMessages = [...messages, { role: "user", content: question }];
+        setMessages(nextMessages);
+        setInput("");
+        setPending(true);
+        setNotice("");
+
+        try {
+          const response = await fetch("/api/chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              selectedModel,
+              messages: nextMessages
+                .filter((message) => !message.demo)
+                .map(({ role, content }) => ({ role, content }))
+            })
+          });
+
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(data.reply || "智能问答接口暂时不可用。");
+          const reply = data.reply || "暂时没有生成回答，请换一种问法再试一次。";
+          setMessages((current) => [
+            ...current,
+            {
+              role: "assistant",
+              content: reply,
+              model: CHAT_ASSISTANT_NAME,
+              sourceLabel: "实时智能回答"
+            }
+          ]);
+        } catch (error) {
+          setNotice(error instanceof Error ? error.message : "智能问答接口暂时不可用，请稍后重试。");
+        } finally {
+          setPending(false);
+        }
+      };
+
+      return (
+        <GlassCard className="rag-chat-preview" tilt={false}>
+          <div className="rag-chat-preview__plate">
+            <div className="rag-chat-preview__top">
+              <div className="rag-chat-preview__identity">
+                <div className="rag-chat-preview__identity-mark liquid-glass">
+                  <span>AI</span>
+                </div>
+                <div>
+                  <p className="rag-chat-preview__eyebrow">QIAOPI ARCHIVE INTELLIGENCE</p>
+                  <p className="rag-chat-preview__title">侨批资料库高精度人工智能大模型</p>
+                  <p className="rag-chat-preview__subtitle">调用 Cloudflare API，提供连续、实时的智能回答</p>
+                </div>
+              </div>
+              <span className={`rag-chat-preview__status ${pending ? "is-pending" : ""}`}>
+                <span className="rag-chat-preview__status-dot" aria-hidden="true"></span>
+                {pending ? "正在生成" : "实时 API 问答"}
+              </span>
+            </div>
+
+            <div
+              className="rag-chat-preview__thread"
+              ref={threadRef}
+              role="log"
+              aria-live="polite"
+              aria-relevant="additions text"
+              aria-busy={pending}
+            >
+              {messages.map((message, index) => (
+                <div key={`${message.role}-${index}`} className={`rag-bubble rag-bubble--${message.role}`}>
+                  {message.role === "assistant" && (
+                    <span className="rag-bubble__model">
+                      <span className="rag-bubble__model-mark">AI</span>
+                      {message.model || CHAT_ASSISTANT_NAME}
+                      <span className="rag-bubble__model-separator">·</span>
+                      {message.sourceLabel || (message.evidences ? "资料库证据演示" : "实时智能回答")}
+                    </span>
+                  )}
+                  <p>{message.content}</p>
+                  {message.evidences && (
+                    <div className="rag-evidence-grid">
+                      {message.evidences.map(([label, value]) => (
+                        <div key={`${label}-${index}`} className="rag-evidence">
+                          <span>{label}</span>
+                          <strong>{value}</strong>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+              {pending && (
+                <div className="rag-bubble rag-bubble--assistant">
+                  <span className="rag-bubble__model">
+                    <span className="rag-bubble__model-mark">AI</span>
+                    {CHAT_ASSISTANT_NAME}
+                  </span>
+                  <div className="rag-thinking" aria-label="正在生成回答">
+                    <span></span><span></span><span></span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <form className="rag-chat-preview__input" onSubmit={submitQuestion}>
+              <input
+                value={input}
+                onChange={(event) => setInput(event.target.value)}
+                placeholder={demo.input}
+                aria-label="输入侨批问答问题"
+                disabled={pending}
+              />
+              <button className="rag-chat-preview__send" type="submit" disabled={pending || !input.trim()} aria-label="发送问题">
+                <Icon name="ArrowUpRight" className="h-4 w-4" />
+              </button>
+            </form>
+            {notice && <p className="rag-chat-preview__hint">{notice}</p>}
+          </div>
+        </GlassCard>
+      );
+    }
+
+    function OutputsPage({ onNavigate }) {
+      return (
+        <section className="page-shell">
+          <div className="max-frame">
+            <motion.div
+              className="page-hero"
+              initial={{ opacity: 0, y: 28, filter: "blur(14px)" }}
+              animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+              exit={{ opacity: 0, y: -18, filter: "blur(12px)" }}
+              transition={{ duration: 0.58, ease: "easeOut" }}
+            >
+              <div className="page-kicker liquid-glass">
+                <Icon name="Layers" className="h-4 w-4 text-[var(--gold)]" />
+                全部成果
+              </div>
+              <h1 className="page-title serif-title text-shadow-soft">项目成果与 AI 能力总览</h1>
+              <p className="page-subtitle text-shadow-soft">
+                保持首页内容完整，同时把成果体系和 AI 能力聚合独立成一个可浏览、可演示、可继续扩展的页面。
+              </p>
+              <div className="page-action-row">
+                <button
+                  type="button"
+                  onClick={() => onNavigate("booking")}
+                  className="liquid-glass-strong inline-flex items-center gap-2 rounded-full px-6 py-3.5 text-sm font-bold text-white"
+                >
+                  预约公益建档
+                  <Icon name="ArrowUpRight" className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onNavigate("home")}
+                  className="liquid-glass inline-flex items-center gap-2 rounded-full px-6 py-3.5 text-sm font-bold text-white"
+                >
+                  回到首页
+                </button>
+              </div>
+            </motion.div>
+
+            <div className="mt-20">
+              <SectionHeader
+                title="项目成果体系"
+                subtitle="九类成果在同一行轨道中循环展示，强调可交付、可审核、可复制。"
+              />
+              <ShowcaseRail items={OUTPUT_ITEMS} variant="output" />
+            </div>
+
+            <div className="mt-24">
+              <SectionHeader
+                title="AI 能力聚合"
+                subtitle="从图像增强、识别、抽取、可信问答到隐私授权，形成完整技术闭环。"
+              />
+              <ShowcaseRail items={CAPABILITY_ITEMS} variant="capability" />
+            </div>
+          </div>
+        </section>
+      );
+    }
+
+    function HeroSection() {
+      return (
+        <section id="home" className="relative min-h-[100dvh] overflow-hidden bg-black">
+          <div className="content-layer flex min-h-[100dvh] flex-col items-center justify-center px-5 pb-16 pt-28 text-center">
+            <motion.div
+              className="hero-kicker liquid-glass mb-7 inline-flex max-w-[92vw] items-center gap-3 rounded-full px-3 py-2 pr-5 text-sm font-semibold text-white/86 md:text-base"
+              initial={{ filter: "blur(10px)", opacity: 0, y: 20 }}
+              animate={{ filter: "blur(0px)", opacity: 1, y: 0 }}
+              transition={{ duration: 0.7, delay: 0.28, ease: "easeOut" }}
+            >
+              <span className="inline-flex items-center gap-3">
+                <span className="rounded-full bg-white px-4 py-1.5 font-body text-xs font-bold text-black">试点</span>
+                <span>东溪村试点，侨批数字保护公益平台</span>
+              </span>
+            </motion.div>
+
+            <h1 className="display-title text-[clamp(4.6rem,10vw,9.8rem)] leading-[1.02] text-white text-shadow-soft">
+              <span className="title-light">
+                <BlurText phrases={["侨批智档"]} />
+              </span>
+            </h1>
+            <motion.h2
+              className="hero-subtitle serif-title mt-3 leading-[1.18] text-white/94 text-shadow-soft"
+              initial={{ filter: "blur(10px)", opacity: 0, y: 24 }}
+              animate={{ filter: "blur(0px)", opacity: 1, y: 0 }}
+              transition={{ duration: 0.7, delay: 0.42, ease: "easeOut" }}
+            >
+              让散落的家书成为可追溯的数字记忆
+            </motion.h2>
+            <motion.p
+              className="hero-rag-copy mt-6 text-base leading-8 text-white/76 text-shadow-soft md:text-[1.22rem]"
+              initial={{ filter: "blur(10px)", opacity: 0, y: 24 }}
+              animate={{ filter: "blur(0px)", opacity: 1, y: 0 }}
+              transition={{ duration: 0.7, delay: 0.62, ease: "easeOut" }}
+            >
+              <span>
+                <span className="phrase">基于多模态文档智能、</span>
+                <span className="phrase">OCR/HTR、</span>
+                <span className="phrase">语义结构化抽取与可信 RAG，</span>
+                <span className="phrase">构建面向侨批保护、</span>
+                <span className="phrase">侨胞寻根、</span>
+                <span className="phrase">教育展陈、</span>
+                <span className="phrase">公共文化服务的</span>
+                <span className="phrase">公益平台。</span>
+              </span>
+            </motion.p>
+
+            <motion.div
+              className="hero-cta-row mt-8"
+              initial={{ filter: "blur(10px)", opacity: 0, y: 24 }}
+              animate={{ filter: "blur(0px)", opacity: 1, y: 0 }}
+              transition={{ duration: 0.7, delay: 0.82, ease: "easeOut" }}
+            >
+              <div className="flex flex-wrap items-center justify-center gap-5">
+                <button
+                  type="button"
+                  onClick={() => scrollToSection("archive-demo")}
+                  className="liquid-glass-strong inline-flex items-center gap-2 rounded-full px-6 py-3.5 text-base font-bold text-white"
+                >
+                  开始体验平台
+                  <Icon name="ArrowUpRight" className="h-5 w-5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => scrollToSection("workflow")}
+                  className="inline-flex items-center gap-2 rounded-full px-4 py-3 text-base font-semibold text-white"
+                >
+                  <span className="text-white">▶</span>
+                  查看处理流程
+                </button>
+              </div>
+            </motion.div>
+
+            <motion.div
+              className="hero-metrics-wrap mt-10"
+              initial={{ filter: "blur(10px)", opacity: 0, y: 24 }}
+              animate={{ filter: "blur(0px)", opacity: 1, y: 0 }}
+              transition={{ duration: 0.7, delay: 1.02, ease: "easeOut" }}
+            >
+              <div className="hero-metrics grid grid-cols-3 gap-3 max-sm:grid-cols-1">
+                <GlassCard className="p-5 text-left max-sm:text-center">
+                  <strong className="block font-body text-3xl font-semibold leading-none text-[#fff5dc]">100+</strong>
+                  <span className="mt-3 block text-sm text-white/68">试点样本目标</span>
+                </GlassCard>
+                <GlassCard className="p-5 text-left max-sm:text-center">
+                  <strong className="block font-body text-3xl font-semibold leading-none text-[#fff5dc]">5 类</strong>
+                  <span className="mt-3 block text-sm text-white/68">核心成果包</span>
+                </GlassCard>
+                <GlassCard className="p-5 text-left max-sm:text-center">
+                  <strong className="block font-body text-3xl font-semibold leading-none text-[#fff5dc]">7 步</strong>
+                  <span className="mt-3 block text-sm text-white/68">可信建档流程</span>
+                </GlassCard>
+              </div>
+            </motion.div>
+          </div>
+        </section>
+      );
+    }
+
+    function ProblemSection() {
+      const items = [
+        ["保存碎片化", "原件散落于家庭和民间收藏，缺少标准化数字建档和长期保存机制。", "授权采集、统一编号、长期备份"],
+        ["识别难度高", "手写繁体、异体字、竖排版式、旧地名、潮汕方言词和汇款术语交织。", "OCR/HTR、领域词表、人工校对"],
+        ["语义难结构化", "人物、地点、时间、金额、亲属关系和迁徙事件难以规模化提取。", "实体识别、关系抽取、字段索引"],
+        ["知识服务不足", "扫描图片难以支撑侨胞寻根、学校教学、研究检索和公共展陈。", "可信 RAG、释读报告、教育素材"],
+        ["开放边界不清", "真实家庭信息涉及隐私，需要授权分级、脱敏和证据链管理。", "敏感识别、分级授权、公开版本"]
+      ];
+
+      return (
+        <section id="problem" className="section-shell archive-band">
+          <div className="max-frame">
+            <SectionHeader
+              title="为什么侨批保护需要智能平台？"
+              subtitle="传统扫描只能保存影像，无法解决看得清、读得出、查得到、证得准、用得好的问题。"
+              align="center"
+            />
+            <motion.div
+              className="problem-grid mt-14"
+              initial="hidden"
+              whileInView="visible"
+              viewport={{ once: true, amount: 0.2 }}
+              transition={{ staggerChildren: 0.06 }}
+            >
+              {items.map(([title, desc, response], index) => (
+                <motion.div key={title} variants={revealVariant} transition={{ duration: 0.65, ease: "easeOut" }}>
+                  <GlassCard className="problem-card h-full p-5">
+                    <div className="mb-6 flex items-center justify-between">
+                      <span className="font-body text-sm font-semibold text-[var(--gold)]">{String(index + 1).padStart(2, "0")}</span>
+                      <Icon name={index === 0 ? "Archive" : index === 1 ? "Scan" : index === 2 ? "Database" : index === 3 ? "Search" : "Shield"} className="h-5 w-5 text-white/72" />
+                    </div>
+                    <h3 className="font-cnserif text-xl font-bold text-white">{title}</h3>
+                    <p className="problem-card__desc mt-4 text-sm leading-7 text-white/68">{desc}</p>
+                    <p className="problem-card__response border-t border-white/10 pt-4 text-sm leading-6 text-white/82">
+                      <span className="text-[var(--gold)]">平台响应：</span>{response}
+                    </p>
+                  </GlassCard>
+                </motion.div>
+              ))}
+            </motion.div>
+          </div>
+        </section>
+      );
+    }
+
+    function OutputsSection() {
+      return (
+        <section id="outputs" className="section-shell bg-black">
+          <div className="max-frame">
+            <SectionHeader
+              title="项目成果体系"
+              subtitle="围绕算法引擎、平台产品与公益服务，形成可交付、可审核、可复制的侨批数字保护成果包。"
+            />
+            <ShowcaseRail items={OUTPUT_ITEMS} variant="output" />
+          </div>
+        </section>
+      );
+    }
+
+    function CapabilitiesSection() {
+      return (
+        <section id="capabilities" className="section-shell capabilities-shell bg-black">
+          <div className="max-frame capabilities-frame">
+            <SectionHeader
+              title={<>AI 能力聚合</>}
+              subtitle="从一张侨批图像，到可信、可检索、可服务的数字档案。"
+              className="max-w-4xl"
+            />
+            <ShowcaseRail items={CAPABILITY_ITEMS} variant="capability" />
+          </div>
+        </section>
+      );
+    }
+
+    function MockArchivePanel() {
+      const [state, setState] = useState("idle");
+      const [answer, setAnswer] = useState(false);
+
+      const startUpload = () => {
+        setAnswer(false);
+        setState("processing");
+        window.setTimeout(() => setState("done"), 1000);
+      };
+
+      return (
+        <GlassCard id="archive-demo" className="sticky top-24 p-5 md:p-6" tilt={false}>
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm text-[var(--gold)]">Qiaopi Archive Intelligence</p>
+              <h3 className="mt-1 font-cnserif text-2xl font-bold text-white">演示档案</h3>
+            </div>
+            <div className="liquid-glass grid h-11 w-11 place-items-center rounded-[0.9rem] text-white">
+              <Icon name="FileText" className="h-5 w-5" />
+            </div>
+          </div>
+
+          {state === "idle" && (
+            <div className="mt-8 rounded-[1.1rem] border border-dashed border-white/16 p-8 text-center">
+              <Icon name="Upload" className="mx-auto h-8 w-8 text-white/74" />
+              <p className="mt-4 text-sm leading-6 text-white/64">等待上传</p>
+              <button onClick={startUpload} className="liquid-glass-strong mt-5 inline-flex items-center gap-2 rounded-full px-5 py-3 text-sm font-bold text-white">
+                上传侨批图像
+                <Icon name="ArrowUpRight" className="h-4 w-4" />
+              </button>
+            </div>
+          )}
+
+          {state === "processing" && (
+            <div className="mt-8 rounded-[1.1rem] bg-white/[0.035] p-8 text-center">
+              <div className="mx-auto h-10 w-10 animate-pulse rounded-full border border-[var(--gold)]"></div>
+              <p className="mt-5 text-sm text-white/72">模拟处理中……</p>
+            </div>
+          )}
+
+          {state === "done" && (
+            <div className="mt-7">
+              <div className="mb-4 flex items-center gap-2 text-sm text-white/74">
+                <Icon name="CheckCircle" className="h-4 w-4 text-[var(--gold)]" />
+                已生成演示结果
+              </div>
+              <div className="mock-panel-grid">
+                {[
+                  ["档案编号", "DX-QP-0001"],
+                  ["识别状态", "待人工复核"],
+                  ["寄件地", "暹罗 / 待确认"],
+                  ["收件地", "潮汕东溪 / 待确认"],
+                  ["字段完整度", "82%"],
+                  ["公开状态", "教学脱敏版"]
+                ].map(([label, value]) => (
+                  <div key={label} className="rounded-[1rem] bg-white/[0.035] p-3">
+                    <p className="text-xs text-white/45">{label}</p>
+                    <p className="mt-1 text-sm font-semibold text-white/86">{value}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-6 rounded-[1rem] bg-black/28 p-4">
+                <input
+                  className="w-full rounded-full bg-white/[0.055] px-4 py-3 text-sm text-white outline-none placeholder:text-white/36"
+                  placeholder="输入你想了解的侨批线索……"
+                  readOnly
+                />
+                <button onClick={() => setAnswer(true)} className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-full bg-white px-4 py-3 text-sm font-bold text-black">
+                  生成带来源回答
+                  <Icon name="Search" className="h-4 w-4" />
+                </button>
+                {answer && (
+                  <motion.p
+                    className="mt-4 text-sm leading-7 text-white/72"
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                  >
+                    根据演示档案 DX-QP-0001，该侨批可能涉及寄批、汇款与家庭问候信息。当前结果为演示数据，正式公开前需要经过人工校对、专家复核与授权脱敏。回答应绑定档案编号、原文片段和审核状态，避免无依据解释。
+                  </motion.p>
+                )}
+              </div>
+            </div>
+          )}
+        </GlassCard>
+      );
+    }
+
+    function WorkflowSection() {
+      const steps = [
+        ["授权采集", "持有人登记、授权确认、采集地点和保存状态记录。", "Shield"],
+        ["图像上传", "上传侨批正反面、信封、批局印记和破损细节。", "Upload"],
+        ["图像增强", "去阴影、倾斜校正、对比度增强、病害区域标注。", "Sparkles"],
+        ["智能识别", "OCR/HTR 生成候选文本和疑难字列表。", "Scan"],
+        ["人工校对", "学生标注员初校，文史团队复核，专家抽检疑难样本。", "Users"],
+        ["字段抽取", "提取人物、地点、金额、时间、亲属关系和事件主题。", "Database"],
+        ["可信问答与公开", "构建全文索引、向量索引和字段索引，根据授权生成可公开版本。", "MessageCircle"]
+      ];
+
+      return (
+        <section id="workflow" className="section-shell archive-band">
+          <div className="max-frame">
+            <SectionHeader title="一封侨批的数字化旅程" subtitle="AI 负责降低整理门槛，人工校对、专家复核和授权脱敏决定最终公开边界。" />
+            <div className="timeline-grid mt-14">
+              <motion.div
+                className="grid gap-5"
+                initial="hidden"
+                whileInView="visible"
+                viewport={{ once: true, amount: 0.15 }}
+                transition={{ staggerChildren: 0.06 }}
+              >
+                {steps.map(([title, desc, icon], index) => (
+                  <motion.div key={title} variants={revealVariant} transition={{ duration: 0.65, ease: "easeOut" }}>
+                    <div className="workflow-step">
+                      <div className="liquid-glass grid h-12 w-12 place-items-center rounded-[0.95rem] text-[var(--gold)]">
+                        <Icon name={icon} className="h-5 w-5" />
+                      </div>
+                      <GlassCard className="p-5">
+                        <p className="text-sm font-semibold text-[var(--gold)]">{String(index + 1).padStart(2, "0")}</p>
+                        <h3 className="mt-2 font-cnserif text-2xl font-bold text-white">{title}</h3>
+                        <p className="mt-3 text-sm leading-7 text-white/68">{desc}</p>
+                      </GlassCard>
+                    </div>
+                  </motion.div>
+                ))}
+              </motion.div>
+              <MockArchivePanel />
+            </div>
+          </div>
+        </section>
+      );
+    }
+
+    function AudienceStackCarousel({ cases }) {
+      const researcherIndex = cases.findIndex(([title]) => title === "研究者");
+      const [active, setActive] = useState(researcherIndex >= 0 ? researcherIndex : 0);
+      const [paused, setPaused] = useState(false);
+
+      useEffect(() => {
+        const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        if (reduceMotion || paused) return undefined;
+        const timer = window.setInterval(() => {
+          setActive((current) => (current + 1) % cases.length);
+        }, 3300);
+        return () => window.clearInterval(timer);
+      }, [cases.length, paused]);
+
+      const activeCase = cases[active];
+      const getStackStyle = (index) => {
+        const offset = (index - active + cases.length) % cases.length;
+        const layerStyles = [
+          {
+            zIndex: 8,
+            opacity: 1,
+            filter: "blur(0px)",
+            transform: "translate3d(0, 0, 74px) rotateX(0deg) rotateY(0deg) rotateZ(0deg) scale(1)"
+          },
+          {
+            zIndex: 7,
+            opacity: 0.28,
+            filter: "blur(0.8px)",
+            transform: "translate3d(42px, -18px, 8px) rotateX(0deg) rotateY(-6deg) rotateZ(1.8deg) scale(0.925)"
+          },
+          {
+            zIndex: 6,
+            opacity: 0.14,
+            filter: "blur(1.6px)",
+            transform: "translate3d(78px, 18px, -44px) rotateX(0deg) rotateY(-10deg) rotateZ(4.5deg) scale(0.845)"
+          },
+          {
+            zIndex: 5,
+            opacity: 0.07,
+            filter: "blur(2.4px)",
+            transform: "translate3d(106px, 52px, -92px) rotateX(0deg) rotateY(-14deg) rotateZ(7deg) scale(0.78)"
+          }
+        ];
+        return layerStyles[offset] || {
+          zIndex: 1,
+          opacity: 0,
+          filter: "blur(4px)",
+          transform: "translate3d(-80px, 28px, -160px) rotateX(0deg) rotateY(16deg) rotateZ(-8deg) scale(0.72)"
+        };
+      };
+
+      return (
+        <div className="audience-carousel">
+          <motion.div
+            initial={{ opacity: 0.82, y: 16, filter: "blur(4px)" }}
+            whileInView={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+            viewport={{ once: true, amount: 0.22 }}
+            transition={{ duration: 0.7, ease: "easeOut" }}
+          >
+            <GlassCard className="audience-summary" tilt={false}>
+              <button
+                type="button"
+                className="audience-pause-control liquid-glass"
+                onClick={() => setPaused((value) => !value)}
+                aria-label={paused ? "继续服务对象轮播" : "暂停服务对象轮播"}
+                title={paused ? "继续服务对象轮播" : "暂停服务对象轮播"}
+              >
+                <Icon name={paused ? "Play" : "Pause"} className="h-4 w-4" />
+              </button>
+              <span className="audience-summary__label">
+                <Icon name={activeCase[3]} className="h-4 w-4" />
+                当前服务对象
+              </span>
+              <h3 className="audience-summary__title serif-title">{activeCase[0]}</h3>
+              <p className="audience-summary__body">{activeCase[1]}</p>
+              <p className="audience-summary__output">
+                <span className="text-[var(--gold)]">输出：</span>{activeCase[2]}
+              </p>
+              <div className="audience-dots" aria-label="服务对象轮播切换">
+                {cases.map(([title], index) => (
+                  <button
+                    key={title}
+                    type="button"
+                    className={`audience-dot ${index === active ? "is-active" : ""}`}
+                    aria-label={`切换到${title}`}
+                    onClick={() => setActive(index)}
+                  >
+                    <span>{title}</span>
+                    <span className="audience-dot__index">{String(index + 1).padStart(2, "0")}</span>
+                  </button>
+                ))}
+              </div>
+            </GlassCard>
+          </motion.div>
+
+          <motion.div
+            className="audience-stack"
+            onMouseEnter={() => setPaused(true)}
+            onMouseLeave={() => setPaused(false)}
+            initial={{ opacity: 0.82, y: 18, filter: "blur(4px)" }}
+            whileInView={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+            viewport={{ once: true, amount: 0.16 }}
+            transition={{ duration: 0.8, ease: "easeOut" }}
+          >
+            {cases.map(([title, need, output, icon], index) => (
+              <div
+                key={title}
+                className={`audience-stack-card ${index === active ? "is-front" : ""}`}
+                style={getStackStyle(index)}
+                aria-hidden={index === active ? "false" : "true"}
+              >
+                <GlassCard className="audience-card" tilt={false}>
+                  <div className="audience-card__plate">
+                    <div className="audience-card__top">
+                      <div className="audience-card__icon liquid-glass">
+                        <Icon name={icon} className="h-7 w-7" />
+                      </div>
+                      <span className="audience-card__index">{String(index + 1).padStart(2, "0")}</span>
+                    </div>
+                    <h3 className="audience-card__title serif-title">{title}</h3>
+                    <p className="audience-card__copy">{need}</p>
+                    <p className="audience-card__output">
+                      <span className="text-[var(--gold)]">输出：</span>{output}
+                    </p>
+                  </div>
+                </GlassCard>
+              </div>
+            ))}
+          </motion.div>
+        </div>
+      );
+    }
+
+    function UseCasesSection() {
+      const cases = [
+        ["侨批持有人", "保存原件、获得电子备份、理解基本内容。", "数字档案包、保存建议、释读说明。", "Archive"],
+        ["侨胞后代", "查询祖辈线索、理解迁徙路径和家族关系。", "寻根辅助报告、地名解释、关系线索。", "Route"],
+        ["学校师生", "开展华侨史、地方文化和家国情怀课程。", "课程案例、课堂问题、展陈材料。", "BookOpen"],
+        ["公共文化机构", "建设展陈、导览和公益传播内容。", "脱敏侨批、二维码问答、展板说明。", "Globe"],
+        ["研究者", "按年代、地点、金额、批局和主题进行授权检索。", "字段检索、统计结果、样本导出申请。", "Search"],
+        ["侨乡村庄", "盘点文化资源、建设长期公共文化服务。", "资源清单、服务记录、年度公益报告。", "MapPin"]
+      ];
+
+      return (
+        <section id="use-cases" className="section-shell bg-black">
+          <div className="max-frame">
+            <SectionHeader title="面向多类用户的公益服务" subtitle="同一套可信档案底座，服务保存、寻根、教学、展陈、研究和村庄公共文化建设。" align="center" />
+            <AudienceStackCarousel cases={cases} />
+          </div>
+        </section>
+      );
+    }
+
+    function ImpactSection({ onNavigate }) {
+      const packs = [
+        ["技术成果包", "图像增强、OCR/HTR、语义抽取、可信 RAG、脱敏授权。", "Brain"],
+        ["数据成果包", "侨批图像样本、校对文本、字段标注、领域词表、错误样本库。", "Database"],
+        ["服务成果包", "数字建档、释读服务、寻根辅助、教育展陈。", "Users"],
+        ["规范成果包", "采集规范、授权模板、脱敏规则、审核流程、平台使用手册。", "Layers"]
+      ];
+
+      return (
+        <section id="impact" className="section-shell archive-band pb-10">
+          <div className="max-frame">
+            <div>
+              <SectionHeader
+                title={<><span className="block">从东溪村试点，</span><span className="block">到侨乡数字保护工具箱</span></>}
+                subtitle="首期以东溪村为试点，完成样本采集、模型适配、平台试运行和公益服务验证，沉淀采集规范、标注规范、授权模板、脱敏规则、审核流程和平台使用手册，逐步复制至潮汕其他侨乡、闽粤侨乡和海外侨胞社群。"
+                className="impact-header"
+              />
+              <div className="mt-8 flex flex-wrap justify-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => onNavigate("booking")}
+                  className="liquid-glass-strong inline-flex items-center gap-2 rounded-full px-6 py-3.5 text-sm font-bold text-white"
+                >
+                  预约公益建档
+                  <Icon name="ArrowUpRight" className="h-4 w-4" />
+                </button>
+                <a
+                  href="/qiaopi-project-introduction.txt"
+                  download="侨批智档项目介绍.txt"
+                  className="liquid-glass inline-flex items-center gap-2 rounded-full px-6 py-3.5 text-sm font-bold text-white"
+                >
+                  下载项目介绍
+                  <Icon name="FileText" className="h-4 w-4" />
+                </a>
+              </div>
+            </div>
+            <motion.div
+              className="mt-14 grid gap-5 md:grid-cols-2 xl:grid-cols-4"
+              initial="hidden"
+              whileInView="visible"
+              viewport={{ once: true, amount: 0.16 }}
+              transition={{ staggerChildren: 0.06 }}
+            >
+              {packs.map(([title, desc, icon]) => (
+                <motion.div key={title} variants={revealVariant} transition={{ duration: 0.65, ease: "easeOut" }}>
+                  <GlassCard className="h-full p-6">
+                    <Icon name={icon} className="h-7 w-7 text-[var(--gold)]" />
+                    <h3 className="mt-12 font-cnserif text-2xl font-bold text-white">{title}</h3>
+                    <p className="mt-4 text-sm leading-7 text-white/68">{desc}</p>
+                  </GlassCard>
+                </motion.div>
+              ))}
+            </motion.div>
+            <footer className="mt-16 flex flex-col gap-4 border-t border-white/10 pt-8 text-sm text-white/52 md:flex-row md:items-center md:justify-between">
+              <p>侨批智档 · Qiaopi Archive Intelligence</p>
+              <p>公益组 / 青年红色筑梦之旅 / 2026</p>
+            </footer>
+          </div>
+        </section>
+      );
+    }
+
+    function HomePage({ onNavigate }) {
+      return (
+        <div className="home-page">
+          <HeroSection key="home-hero" />
+          <ProblemSection key="home-problem" />
+          <OutputsSection key="home-outputs" />
+          <CapabilitiesSection key="home-capabilities" />
+          <WorkflowSection key="home-workflow" />
+          <UseCasesSection key="home-use-cases" />
+          <ImpactSection key="home-impact" onNavigate={onNavigate} />
+        </div>
+      );
+    }
+
+    function getPageFromLocation() {
+      const rawHash = window.location.hash;
+      const hash = rawHash.startsWith("#/") ? rawHash.slice(2) : "";
+      return NAV_ITEMS.some((item) => item.page === hash) ? hash : "home";
+    }
+
+    function VideoBootScreen({ progress }) {
+      const [statusIndex, setStatusIndex] = useState(0);
+      const percent = Math.round(clampProgress(progress) * 100);
+      const statusText = BOOT_STATUS_ITEMS[statusIndex % BOOT_STATUS_ITEMS.length];
+
+      useEffect(() => {
+        const timer = window.setInterval(() => {
+          setStatusIndex((current) => current + 1);
+        }, 1150);
+        return () => window.clearInterval(timer);
+      }, []);
+
+      return (
+        <div className="video-boot-screen" role="status" aria-live="polite" aria-label="侨批智档正在初始化">
+          <div className="video-boot-screen__aura" aria-hidden="true"></div>
+          <div className="video-boot-screen__panel liquid-glass-strong">
+            <span className="video-boot-screen__kicker">Qiaopi Archive Intelligence</span>
+            <div className="video-boot-screen__title">侨批智档</div>
+            <p className="video-boot-screen__text">
+              {statusText}
+            </p>
+            <div className="video-boot-screen__bar" aria-hidden="true">
+              <span style={{ width: `${percent}%` }}></span>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function App() {
+      const [page, setPage] = useState(getPageFromLocation);
+      const videoBoot = useVideoPreloader();
+
+      const navigate = (nextPage) => {
+        const target = NAV_ITEMS.some((item) => item.page === nextPage) ? nextPage : "home";
+        const nextUrl = target === "home"
+          ? `${window.location.pathname}${window.location.search}`
+          : `${window.location.pathname}${window.location.search}#/${target}`;
+
+        if (target === page && window.location.hash === (target === "home" ? "" : `#/${target}`)) {
+          const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+          window.scrollTo({ top: 0, behavior: reduceMotion ? "auto" : "smooth" });
+          return;
+        }
+
+        window.scrollTo({ top: 0, behavior: "auto" });
+        setPage(target);
+        window.history.pushState({ page: target }, "", nextUrl);
+      };
+
+      useEffect(() => {
+        const handlePopState = () => setPage(getPageFromLocation());
+        const handleHashChange = () => {
+          if (window.location.hash.startsWith("#/")) setPage(getPageFromLocation());
+        };
+        window.addEventListener("popstate", handlePopState);
+        window.addEventListener("hashchange", handleHashChange);
+        return () => {
+          window.removeEventListener("popstate", handlePopState);
+          window.removeEventListener("hashchange", handleHashChange);
+        };
+      }, []);
+
+      useEffect(() => {
+        const forceTop = () => window.scrollTo({ top: 0, behavior: "auto" });
+        forceTop();
+        const topTimer = window.setTimeout(forceTop, 80);
+        const settledTopTimer = window.setTimeout(forceTop, 260);
+
+        const firstRefresh = window.setTimeout(() => {
+          if (ScrollTrigger) ScrollTrigger.refresh();
+        }, 140);
+        const settledRefresh = window.setTimeout(() => {
+          if (ScrollTrigger) ScrollTrigger.refresh();
+        }, 520);
+
+        return () => {
+          window.clearTimeout(topTimer);
+          window.clearTimeout(settledTopTimer);
+          window.clearTimeout(firstRefresh);
+          window.clearTimeout(settledRefresh);
+        };
+      }, [page]);
+
+      useEffect(() => {
+        document.title = page === "home"
+          ? "侨批智档 · Qiaopi Archive Intelligence"
+          : `${PAGE_TITLES[page] || "侨批智档"} · 侨批智档`;
+        if (!videoBoot.ready || page === "home") return undefined;
+        const focusTimer = window.setTimeout(() => {
+          const heading = document.querySelector(".route-switch-frame h1");
+          if (!heading) return;
+          heading.setAttribute("tabindex", "-1");
+          heading.focus({ preventScroll: true });
+        }, 0);
+        return () => window.clearTimeout(focusTimer);
+      }, [page, videoBoot.ready]);
+
+      const pageContent = page === "home"
+        ? <HomePage key="page-home" onNavigate={navigate} />
+        : page === "outputs"
+          ? <OutputsPage key="page-outputs" onNavigate={navigate} />
+          : <DetailPage key={`page-${page}`} page={page} onNavigate={navigate} />;
+      const videoSource = getVideoSourceForPage(page, videoBoot.sources);
+
+      if (!videoBoot.ready) {
+        return (
+          <MotionConfig reducedMotion="user">
+            <VideoBootScreen progress={videoBoot.progress} />
+          </MotionConfig>
+        );
+      }
+
+      return (
+        <MotionConfig reducedMotion="user">
+          <div className="min-h-screen bg-transparent text-white">
+            <ScrollVideoBackdrop key={`video-${page}-${videoSource}`} src={videoSource} />
+            <div className="global-video-shade" aria-hidden="true"></div>
+            <Navbar page={page} onNavigate={navigate} />
+            <main
+              key={`route-${page}`}
+              className="route-switch-frame"
+            >
+              {pageContent}
+            </main>
+          </div>
+        </MotionConfig>
+      );
+    }
+
+export default App;
