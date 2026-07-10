@@ -30,7 +30,7 @@ export async function onRequestPost({ request, env }) {
     return jsonResponse(
       {
         error: "MIMO_API_KEY is not configured",
-        reply: "后端还没有配置 MiMo API key。请在 Cloudflare Pages 的环境变量里设置 MIMO_API_KEY 后再试。"
+        reply: "后端还没有配置API key。请在的环境变量里设置 MIMO_API_KEY 后再试。"
       },
       503
     );
@@ -80,14 +80,14 @@ export async function onRequestPost({ request, env }) {
       return jsonResponse(
         {
           error: data.error?.message || "MiMo request failed",
-          reply: "MiMo 接口暂时没有返回可用回答，请稍后再试。"
+          reply: "侨批智能模型接口暂时没有返回可用回答，请稍后再试。"
         },
         upstream.status
       );
     }
 
     return jsonResponse({
-      reply: data.choices?.[0]?.message?.content || "MiMo 暂时没有生成回答，请换一种问法再试。",
+      reply: data.choices?.[0]?.message?.content || "侨批智能模型暂时没有生成回答，请换一种问法再试。",
       routedModel: model,
       displayModel: "MiMo 2.5"
     });
@@ -95,7 +95,7 @@ export async function onRequestPost({ request, env }) {
     return jsonResponse(
       {
         error: "Network error",
-        reply: "连接 MiMo 接口时遇到网络问题，请稍后再试。"
+        reply: "连接侨批智能模型接口时遇到网络问题，请稍后再试。"
       },
       502
     );
